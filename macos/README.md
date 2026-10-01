@@ -25,11 +25,12 @@ Implemented (all commands of plan 5.1-5.3 that are feasible), 115 self-test chec
 Deliberately not registered (plan 5.3): `guest-suspend-*`, `guest-fstrim`, `guest-set-vcpus`,
 `guest-set-memory-blocks`.
 
-Verified on 10.1.5 (guest, GCC 2.95.2) and 10.2.8 (guest, GCC 3.1): self-test, the installed
-StartupItem as live agent, the host's `macos exec` / `macos cp` (100 KB binary round trip), every
-read-only command by hand, and a throwaway NetInfo user for ssh keys (dedupe, remove, reset, owner/mode)
-and passwords (stored hash verified with `crypt()`). Not yet built or run on 10.0; the `dscl` (10.3+) and
-launchd (10.4+) paths are untested. Neither 10.1 nor 10.2 has `/usr/bin/stat` or `dscl`.
+Verified on 10.0.4 (guest, GCC 2.95.2), 10.1.5 (guest, GCC 2.95.2) and 10.2.8 (guest,
+GCC 3.1): self-test (115 checks, no source change needed between releases), the installed StartupItem as live
+agent, the host's `macos exec` / `macos cp` (100 KB binary round trip), every read-only command by hand, and a
+throwaway NetInfo user for ssh keys (dedupe, remove, reset, owner/mode), passwords (stored hash verified with
+`crypt()`) and freeze. The `dscl` (10.3+) and launchd (10.4+) paths are untested. None of 10.0, 10.1 or 10.2 has
+`/usr/bin/stat` or `dscl`; 10.0 also has no `/dev/random`, which matters for Dropbear, not for this agent.
 
 ### Behaviours worth knowing
 
