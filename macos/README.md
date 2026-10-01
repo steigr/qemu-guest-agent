@@ -25,10 +25,11 @@ Implemented (all commands of plan 5.1-5.3 that are feasible), 115 self-test chec
 Deliberately not registered (plan 5.3): `guest-suspend-*`, `guest-fstrim`, `guest-set-vcpus`,
 `guest-set-memory-blocks`.
 
-Verified on 10.1.5 (guest, GCC 2.95.2): self-test, the installed StartupItem as live agent, the
-host's `macos exec` / `macos cp`, and a throwaway NetInfo user for ssh keys (dedupe, remove, reset,
-owner/mode) and passwords (stored hash equals `crypt()`). Not yet built or run on 10.0 or 10.2+;
-`dscl` (10.3+) and launchd (10.4+) paths are untested.
+Verified on 10.1.5 (guest, GCC 2.95.2) and 10.2.8 (guest, GCC 3.1): self-test, the installed
+StartupItem as live agent, the host's `macos exec` / `macos cp` (100 KB binary round trip), every
+read-only command by hand, and a throwaway NetInfo user for ssh keys (dedupe, remove, reset, owner/mode)
+and passwords (stored hash verified with `crypt()`). Not yet built or run on 10.0; the `dscl` (10.3+) and
+launchd (10.4+) paths are untested. Neither 10.1 nor 10.2 has `/usr/bin/stat` or `dscl`.
 
 ### Behaviours worth knowing
 
