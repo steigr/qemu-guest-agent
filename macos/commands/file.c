@@ -241,10 +241,10 @@ static int cmd_flush(const json *args, json **ret, char *err, size_t errlen)
 
 void qga_file_register(void)
 {
-    qga_register("guest-file-open", cmd_open);
-    qga_register("guest-file-close", cmd_close);
-    qga_register("guest-file-read", cmd_read);
-    qga_register("guest-file-write", cmd_write);
-    qga_register("guest-file-seek", cmd_seek);
-    qga_register("guest-file-flush", cmd_flush);
+    qga_register_ex("guest-file-open", cmd_open, QGA_BLOCK_FROZEN);
+    qga_register_ex("guest-file-close", cmd_close, QGA_BLOCK_FROZEN);
+    qga_register_ex("guest-file-read", cmd_read, QGA_BLOCK_FROZEN);
+    qga_register_ex("guest-file-write", cmd_write, QGA_BLOCK_FROZEN);
+    qga_register_ex("guest-file-seek", cmd_seek, QGA_BLOCK_FROZEN);
+    qga_register_ex("guest-file-flush", cmd_flush, QGA_BLOCK_FROZEN);
 }

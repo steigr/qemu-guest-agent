@@ -223,15 +223,25 @@ static int cmd_exec(const json *args, json **ret, char *err, size_t errlen)
         return qga_seterr(err, errlen, "invalid base64 in 'input-data'");
     }
 
-    /* argv[0] is path; the protocol's "arg" list supplies argv[1..]. */
+    /* argv[0] is path; the protocol's "arg" list supplies argv[1..]. A missing /usr/bin/stat
+     * (10.0/10.1) is replaced by this binary's own stat applet. */
     {
-        size_t na = jarg ? jarg->n : 0, i;
+        size_t na = jarg ? jarg->n : 0, i, front = 1;
+        int applet = strcmp(path, "/usr/bin/stat") == 0 && access(path, X_OK) != 0 && qga_self_path[0];
 
-        argv = (char **)qga_xmalloc((na + 2) * sizeof *argv);
+        if (applet) {
+            front = 3;
+            path = qga_self_path;
+        }
+        argv = (char **)qga_xmalloc((na + front + 1) * sizeof *argv);
         argv[0] = (char *)path;
+        if (applet) {
+            argv[1] = "--applet";
+            argv[2] = "stat";
+        }
         for (i = 0; i < na; i++)
-            argv[i + 1] = jarg->items[i]->s;
-        argv[na + 1] = NULL;
+            argv[i + front] = jarg->items[i]->s;
+        argv[na + front] = NULL;
     }
     if (jenv)
         envp = string_array(jenv);
@@ -369,7 +379,7 @@ static int cmd_exec_status(const json *args, json **ret, char *err, size_t errle
 
 void qga_exec_register(void)
 {
-    qga_register("guest-exec", cmd_exec);
+    qga_register_ex("guest-exec", cmd_exec, QGA_BLOCK_FROZEN);
     qga_register("guest-exec-status", cmd_exec_status);
     qga_add_poller(&poller);
 }

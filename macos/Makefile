@@ -17,12 +17,12 @@ cc_opt = $(shell echo 'int x;' > .probe.c; if [ -z "`$(CC) $(1) -c -o .probe.o .
 STD       := $(call cc_opt,-std=gnu89)
 WARN      := -Wall -W $(call cc_opt,-Wdeclaration-after-statement)
 CFLAGS    += $(STD) $(WARN) $(OPT) $(ARCH_FLAGS)
-LDFLAGS   += $(ARCH_FLAGS)
+LDFLAGS   += $(ARCH_FLAGS) -framework IOKit -framework CoreFoundation
 
 SRCS = main.c selftest.c \
        core/util.c core/json.c core/base64.c core/dispatch.c \
-       commands/protocol.c commands/file.c commands/exec.c commands/system.c \
-       transport/tty.c
+       commands/protocol.c commands/file.c commands/exec.c commands/system.c commands/hw.c commands/freeze.c commands/ssh.c commands/user.c commands/stat.c \
+       install.c transport/tty.c
 OBJS = $(SRCS:.c=.o)
 
 all: qemu-guest-agent

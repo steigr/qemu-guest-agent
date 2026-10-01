@@ -6,32 +6,52 @@ matrix and milestones: `doc/plans/ppc-macosx-qga-implementation-plan.md`.
 
 ## Status
 
-Implemented (M0-M3 and part of M2/M5), 101 self-test checks:
+Implemented (all commands of plan 5.1-5.3 that are feasible), 115 self-test checks:
 
 - protocol: `guest-ping`, `guest-sync`, `guest-sync-id`, `guest-sync-delimited`, `guest-info`
 - file: `guest-file-open/close/read/write/seek/flush`
 - exec: `guest-exec`, `guest-exec-status`
 - system: `guest-get-host-name`/`-hostname`, `guest-get-time`, `guest-set-time`, `guest-get-timezone`,
-  `guest-get-load`, `guest-get-osinfo`, `guest-get-vcpus`, `guest-get-fsinfo`,
-  `guest-network-get-interfaces` (IPv4 + MAC), `guest-get-users`, `guest-shutdown`
+  `guest-get-load`, `guest-get-osinfo`, `guest-get-vcpus`, `guest-get-fsinfo`, `guest-get-users`,
+  `guest-network-get-interfaces` (IPv4 + MAC via ioctl, IPv6 by parsing `ifconfig -a`), `guest-shutdown`
+- hardware: `guest-get-memory-blocks`, `guest-get-memory-block-info` (nominal 128 MiB blocks, never
+  offline-able), `guest-get-cpustats` (Mach, `type: linux` with user/nice/system/idle),
+  `guest-get-disks` (`/dev/diskN[sM]`), `guest-get-diskstats` (IOKit `IOBlockStorageDriver`; sectors
+  and ios, ticks in ms; other Linux fields omitted)
+- freeze: `guest-fsfreeze-freeze`, `-freeze-list`, `-thaw`, `-status`
+- ssh: `guest-ssh-get/add/remove-authorized-keys`
+- user: `guest-set-user-password` (see below)
 
-Not yet: memory blocks, cpustats, disks/diskstats, IPv6 addresses, freeze, ssh keys, set-user-password,
-installer/daemonizing, config file.
+Deliberately not registered (plan 5.3): `guest-suspend-*`, `guest-fstrim`, `guest-set-vcpus`,
+`guest-set-memory-blocks`.
 
-Verified on 10.1.5 (guest, GCC 2.95.2): `make test` passes, and as the live agent the host's
-`macos exec` (stdout/stderr/exit code) and `macos cp` (100 KB binary round trip) work. Not yet built
-or run on 10.0 or 10.2+.
+Verified on 10.1.5 (guest, GCC 2.95.2): self-test, the installed StartupItem as live agent, the
+host's `macos exec` / `macos cp`, and a throwaway NetInfo user for ssh keys (dedupe, remove, reset,
+owner/mode) and passwords (stored hash equals `crypt()`). Not yet built or run on 10.0 or 10.2+;
+`dscl` (10.3+) and launchd (10.4+) paths are untested.
 
-`guest-exec` quirk: by default a binary that cannot be executed does not fail the request; the child
-exits 127 and its stderr carries `exec PATH: reason`, as the Perl agent did. The host's `Stat`
-(`macos cp`) relies on this because 10.1 has no `/usr/bin/stat`. `--strict-exec` gives upstream qemu-ga
-semantics (the request fails). Captured output is capped at 1 MiB per stream (`*-truncated`).
+### Behaviours worth knowing
+
+- **Freeze is not a freeze.** HFS+ has no kernel freeze. `guest-fsfreeze-freeze` runs
+  `/etc/qemu/fsfreeze-hook freeze` if executable, `sync()`s, and `fcntl(F_FULLFSYNC)`s every local
+  read-write mount (EINVAL is ignored where unsupported); `-status` then reports `frozen`, and the agent
+  refuses file, exec, set-time, ssh-key, password and shutdown commands until `-thaw` (which runs the hook
+  with `thaw`). Nothing else on the guest is quiesced, and there is no timeout thaw.
+- **`guest-exec` with a missing binary:** by default the request succeeds and the child exits 127 with
+  `exec PATH: reason` on stderr, as the Perl agent did (the host's `Stat` relies on it). `--strict-exec`
+  gives upstream qemu-ga semantics (the request fails). Captured output is capped at 1 MiB per stream.
+- **Built-in `/usr/bin/stat`:** 10.0/10.1 ship none. When `guest-exec` is asked for `/usr/bin/stat` and it is
+  not executable, the agent re-executes itself as `--applet stat`, which understands the BSD
+  (`-f "%z %p %m"`) and GNU (`-c "%s %f %Y"`) spellings the host uses.
+- **`guest-set-user-password`:** `dscl . -passwd` where `/usr/bin/dscl` exists (plain text only);
+  otherwise NetInfo: `niutil -createprop . /users/NAME passwd HASH` with a `crypt()` hash (DES: only the
+  first 8 characters count). The password is passed to the tool as an argument, so it is briefly visible in `ps`.
 
 ## Layout
 
 - `core/` JSON parser/serializer, base64, command registry + dispatcher, buffer/log helpers.
 - `transport/` serial channel: raw termios open, `/dev/cu.virtio-*` discovery, framed read loop.
-- `commands/` one file per command family (`protocol.c`, `file.c`, `exec.c`, `system.c`); each exposes a `qga_*_register()`.
+- `commands/` one file per command family (`protocol`, `file`, `exec`, `system`, `hw`, `freeze`, `ssh`, `user`, `stat` applet); each exposes a `qga_*_register()`.
 - `selftest.c`, `tests/stdio.sh` host/guest tests.
 
 ## Build and test
@@ -55,8 +75,19 @@ and record the evidence here when that milestone is reached.
 - Writes never block indefinitely; data is dropped if the host does not drain it.
 - Several `cu.virtio-*` nodes and no `--tty`: refuses to guess, logs the candidates, retries.
 
+## Running and installing
+
+```sh
+./qemu-guest-agent --install      # as root: /usr/local/libexec + StartupItem (<10.4) or LaunchDaemon (10.4+)
+./qemu-guest-agent --upgrade      # same, overwriting; --uninstall removes it
+./qemu-guest-agent --daemon       # detach; log /var/log/qemu-guest-agent.log, pid /var/run/qemu-guest-agent.pid
+```
+
+The installer warns when the Perl agent's StartupItem (`MacGuestAgent`) is present: two agents on the
+one channel would fight, so remove one. The StartupItem script avoids `RunService` (missing in 10.1's
+`rc.common`). Not implemented: a config file.
+
 ## Source rules
 
 C89 plus `long long`; no external libraries, no `poll()`/`kqueue`, `select()` only; hand-rolled
-`cfmakeraw`. Out of memory exits (service wrapper restarts it). Not yet implemented: daemonizing,
-config file, installers (M4).
+`cfmakeraw`. Out of memory exits (service wrapper restarts it).

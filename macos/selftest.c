@@ -418,6 +418,46 @@ static void test_system(void)
     json_free(keep);
 }
 
+static void test_hw_freeze(void)
+{
+    json *keep, *r;
+
+    r = call("{\"execute\":\"guest-get-memory-block-info\"}", &keep);
+    CHECK(r && json_obj_get(r, "size") && json_obj_get(r, "size")->i > 0);
+    json_free(keep);
+    r = call("{\"execute\":\"guest-get-memory-blocks\"}", &keep);
+    CHECK(r && r->type == J_ARR && r->n >= 1);
+    json_free(keep);
+    r = call("{\"execute\":\"guest-get-cpustats\"}", &keep);
+    CHECK(r && r->type == J_ARR && r->n >= 1 && json_obj_get(r->items[0], "idle"));
+    json_free(keep);
+    r = call("{\"execute\":\"guest-get-disks\"}", &keep);
+    CHECK(r && r->type == J_ARR);
+    json_free(keep);
+    r = call("{\"execute\":\"guest-get-diskstats\"}", &keep);
+    CHECK(r && r->type == J_ARR);
+    json_free(keep);
+
+    /* Freeze state machine: thawed -> frozen -> thawed, file/exec refused while frozen. */
+    CHECK(reply_is("{\"execute\":\"guest-fsfreeze-status\"}", "{\"return\":\"thawed\"}\n"));
+    r = call("{\"execute\":\"guest-fsfreeze-freeze\"}", &keep);
+    CHECK(r && r->type == J_INT);
+    json_free(keep);
+    CHECK(reply_is("{\"execute\":\"guest-fsfreeze-status\"}", "{\"return\":\"frozen\"}\n"));
+    CHECK(reply_is("{\"execute\":\"guest-exec\",\"arguments\":{\"path\":\"/bin/true\"}}",
+                   "{\"error\":{\"class\":\"GenericError\",\"desc\":\"Command guest-exec has been disabled: "
+                   "the command is not allowed while the filesystem is frozen\"}}\n"));
+    CHECK(reply_is("{\"execute\":\"guest-ping\"}", "{\"return\":{}}\n"));
+    r = call("{\"execute\":\"guest-fsfreeze-freeze\"}", &keep);
+    CHECK(r == NULL);
+    json_free(keep);
+    r = call("{\"execute\":\"guest-fsfreeze-thaw\"}", &keep);
+    CHECK(r && r->type == J_INT);
+    json_free(keep);
+    CHECK(reply_is("{\"execute\":\"guest-fsfreeze-status\"}", "{\"return\":\"thawed\"}\n"));
+    CHECK(reply_is("{\"execute\":\"guest-fsfreeze-thaw\"}", "{\"return\":0}\n"));
+}
+
 int qga_selftest(void)
 {
     test_json();
@@ -426,9 +466,14 @@ int qga_selftest(void)
     qga_file_register();
     qga_exec_register();
     qga_system_register();
+    qga_hw_register();
+    qga_freeze_register();
+    qga_ssh_register();
+    qga_user_register();
     test_file();
     test_exec();
     test_system();
+    test_hw_freeze();
     printf("%d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
 }

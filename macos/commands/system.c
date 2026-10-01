@@ -161,6 +161,10 @@ static int cmd_get_osinfo(const json *args, json **ret, char *err, size_t errlen
     if (build[0])
         json_obj_set(o, "variant-id", json_str(build));
     if (uname(&un) == 0) {
+        size_t vl = strlen(un.version);
+
+        while (vl > 0 && (un.version[vl - 1] == ' ' || un.version[vl - 1] == '\n'))
+            un.version[--vl] = '\0';
         json_obj_set(o, "kernel-release", json_str(un.release));
         json_obj_set(o, "kernel-version", json_str(un.version));
         json_obj_set(o, "machine", json_str(un.machine));
@@ -208,8 +212,14 @@ static int cmd_get_fsinfo(const json *args, json **ret, char *err, size_t errlen
     n = getfsstat(fs, (long)((n + 1) * sizeof *fs), MNT_NOWAIT);
     for (k = 0; k < n; k++) {
         const char *dev = strrchr(fs[k].f_mntfromname, '/');
-        json *e = json_obj();
+        json *e;
         qga_i64 bs = (qga_i64)fs[k].f_bsize;
+
+        /* Synthetic filesystems carry no data worth reporting. */
+        if (strcmp(fs[k].f_fstypename, "devfs") == 0 || strcmp(fs[k].f_fstypename, "fdesc") == 0 ||
+            strcmp(fs[k].f_fstypename, "volfs") == 0)
+            continue;
+        e = json_obj();
 
         json_obj_set(e, "name", json_str(dev ? dev + 1 : fs[k].f_mntfromname));
         json_obj_set(e, "mountpoint", json_str(fs[k].f_mntonname));
@@ -249,8 +259,62 @@ static int prefix_len(unsigned long mask_be)
     return n;
 }
 
-/* IPv4 and link-layer addresses via SIOCGIFCONF (getifaddrs may be missing on old releases);
- * IPv6 addresses are not reported yet. */
+/* 10.0/10.1 have no getifaddrs() and SIOCGIFCONF lists no IPv6, so those addresses come from
+ * `ifconfig -a` ("inet6 ADDR[%scope] prefixlen N" under each "name: flags=" header). */
+static void add_ipv6(json *list)
+{
+    FILE *fp = popen("/sbin/ifconfig -a 2>/dev/null", "r");
+    char line[512], name[IFNAMSIZ + 1];
+
+    if (!fp)
+        return;
+    name[0] = '\0';
+    while (fgets(line, sizeof line, fp)) {
+        if (line[0] != ' ' && line[0] != '\t') {
+            char *c = strchr(line, ':');
+
+            name[0] = '\0';
+            if (c && (size_t)(c - line) <= IFNAMSIZ) {
+                memcpy(name, line, (size_t)(c - line));
+                name[c - line] = '\0';
+            }
+        } else if (name[0]) {
+            char *p = strstr(line, "inet6 ");
+            char addr[96];
+            int prefix = 0, n = 0;
+            json *ent, *addrs, *a;
+
+            if (!p)
+                continue;
+            p += 6;
+            while (*p && *p != ' ' && *p != '%' && *p != '\n' && n < (int)sizeof addr - 1)
+                addr[n++] = *p++;
+            addr[n] = '\0';
+            p = strstr(line, "prefixlen ");
+            if (p)
+                prefix = atoi(p + 10);
+            ent = find_iface(list, name);
+            if (!ent) {
+                ent = json_obj();
+                json_obj_set(ent, "name", json_str(name));
+                json_arr_add(list, ent);
+            }
+            addrs = json_obj_get(ent, "ip-addresses");
+            if (!addrs) {
+                addrs = json_arr();
+                json_obj_set(ent, "ip-addresses", addrs);
+            }
+            a = json_obj();
+            json_obj_set(a, "ip-address-type", json_str("ipv6"));
+            json_obj_set(a, "ip-address", json_str(addr));
+            json_obj_set(a, "prefix", json_int(prefix));
+            json_arr_add(addrs, a);
+        }
+    }
+    pclose(fp);
+}
+
+/* IPv4 and link-layer addresses via SIOCGIFCONF (getifaddrs may be missing on old releases). */
 static int cmd_network_get_interfaces(const json *args, json **ret, char *err, size_t errlen)
 {
     enum { BUFSZ = 16384 };
@@ -328,6 +392,7 @@ static int cmd_network_get_interfaces(const json *args, json **ret, char *err, s
     }
     close(s);
     free(buf);
+    add_ipv6(list);
     *ret = list;
     return 0;
 }
@@ -389,7 +454,7 @@ void qga_system_register(void)
     qga_register("guest-get-host-name", cmd_host_name);
     qga_register("guest-get-hostname", cmd_host_name);
     qga_register("guest-get-time", cmd_get_time);
-    qga_register("guest-set-time", cmd_set_time);
+    qga_register_ex("guest-set-time", cmd_set_time, QGA_BLOCK_FROZEN);
     qga_register("guest-get-timezone", cmd_get_timezone);
     qga_register("guest-get-load", cmd_get_load);
     qga_register("guest-get-osinfo", cmd_get_osinfo);
@@ -397,5 +462,5 @@ void qga_system_register(void)
     qga_register("guest-get-fsinfo", cmd_get_fsinfo);
     qga_register("guest-network-get-interfaces", cmd_network_get_interfaces);
     qga_register("guest-get-users", cmd_get_users);
-    qga_register_ex("guest-shutdown", cmd_shutdown, QGA_NOREPLY);
+    qga_register_ex("guest-shutdown", cmd_shutdown, QGA_NOREPLY | QGA_BLOCK_FROZEN);
 }

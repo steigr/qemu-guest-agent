@@ -15,6 +15,7 @@
  * args is the request's "arguments" object, or NULL if absent. */
 typedef int (*qga_handler)(const json *args, json **ret, char *err, size_t errlen);
 
+#define QGA_BLOCK_FROZEN 2  /* refused while guest-fsfreeze-freeze is in effect */
 #define QGA_NOREPLY 1   /* success-response: false (guest-shutdown): send nothing on success */
 
 void qga_register(const char *name, qga_handler fn);
@@ -48,10 +49,20 @@ void qga_add_poller(const qga_poller *p);
 void qga_poll_fill(fd_set *r, fd_set *w, int *maxfd);
 void qga_poll_service(void);
 
+extern int qga_frozen;              /* set by commands/freeze.c */
+
 void qga_protocol_register(void);   /* commands/protocol.c */
 void qga_file_register(void);       /* commands/file.c */
 void qga_exec_register(void);       /* commands/exec.c */
 extern int qga_exec_strict;         /* exec failure fails guest-exec instead of exit code 127 */
 void qga_system_register(void);     /* commands/system.c */
+void qga_hw_register(void);         /* commands/hw.c: memory, cpustats, disks */
+void qga_freeze_register(void);     /* commands/freeze.c */
+void qga_ssh_register(void);        /* commands/ssh.c */
+void qga_user_register(void);       /* commands/user.c */
+
+/* Applets: the agent re-executes itself to stand in for tools missing on old releases. */
+extern char qga_self_path[1024];    /* absolute path of this binary, set by main() */
+int qga_applet_stat(int argc, char **argv);
 
 #endif

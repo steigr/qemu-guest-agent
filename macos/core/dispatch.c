@@ -13,6 +13,7 @@ typedef struct {
 static cmd table[MAX_COMMANDS];
 static size_t ncmds = 0;
 static int delimit_next = 0;
+int qga_frozen = 0;
 
 void qga_register_ex(const char *name, qga_handler fn, int flags)
 {
@@ -105,6 +106,13 @@ void qga_handle(const char *line, size_t len, sbuf *out)
         strncat(msg, exec->s, sizeof msg - strlen(msg) - 32);
         strcat(msg, " has not been found");
         resp = error_obj("CommandNotFound", msg);
+    } else if (qga_frozen && (table[k].flags & QGA_BLOCK_FROZEN)) {
+        char msg[160];
+
+        strcpy(msg, "Command ");
+        strncat(msg, exec->s, 80);
+        strcat(msg, " has been disabled: the command is not allowed while the filesystem is frozen");
+        resp = error_obj("GenericError", msg);
     } else {
         json *ret = NULL;
 

@@ -157,7 +157,7 @@ void json_serialize(const json *j, sbuf *out)
         if (j->d != j->d || j->d - j->d != 0) {     /* NaN or infinity */
             sb_puts(out, "null");
         } else {
-            sprintf(tmp, "%.17g", j->d);
+            sprintf(tmp, "%.15g", j->d);
             sb_puts(out, tmp);
         }
         break;
