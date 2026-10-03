@@ -93,11 +93,27 @@ vsock is up `select()` waits 20 ms and the handles are polled after it. One conn
 new one replaces the old, which is what a host that reconnects needs. The host connects to the
 guest's CID, port 7700, with `AF_VSOCK`.
 
-Proven on 10.2.8 (`guest`, CID 302, 2026-10-04), the agent built there with GCC 3.1: from the
+Proven on all four PowerPC releases (2026-10-04, the cluster pods' vhost-vsock, each agent built by
+the ladder with that release's tools, VirtioVsock loaded from `/tmp`, the agent run with `--tty off`
+beside the pod's own): 10.0.4 (`guest`, CID 303), 10.1.5 (`guest`, 301), 10.2.8 (`guest`,
+302) and 10.3.9 (`guest`, 304) each answered sync, osinfo and exec on port 7700, read 1 MiB of
+`/mach_kernel` at 948-1119 KB/s, and on port 7701 gave the log's history on connect and then a line
+`logger` wrote 10 s before. Earlier, on 10.2.8 (`guest`, CID 302), the agent built there with GCC 3.1: from the
 pod, `guest-sync-delimited`, `guest-ping`, `guest-get-osinfo`, `guest-exec` with captured output,
 1 MiB of `/mach_kernel` through `guest-file-read` at 940 KB/s (the Perl agent over its channel: 25
 KB/s), a reconnect, and a second connection replacing the first. With no vsock device (the local
 ladder, 10.2.8) the agent serves the virtio console as before: `ladder.sh 10.2 virtio-test` passed.
+
+## Log stream
+
+`--log-stream auto` (the default) follows `/var/log/system.log` -- where syslogd writes what the
+system and the kernel log on these releases; the unified log is 10.12's -- and writes every new line
+to vsock port 7701 and to the second virtio console (`/dev/cu.virtio-1`: with two, the lowest is the
+agent's, so the host gives the agent's console the lower PCI slot). A host that connects over vsock
+first gets the last 64 KB, then live lines; the log channels never wait (a console nobody reads on
+the host would stall the agent): what would block is dropped. The file is polled once a second and
+followed across newsyslog's rotation. `--log-stream off`; `--log-source FILE` for another file.
+Proven over vsock on 10.0.4 to 10.3.9 (above); over the second console by the ladder's virtio-test.
 
 ## Running and installing
 
