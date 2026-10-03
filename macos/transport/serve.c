@@ -9,6 +9,7 @@
 #include "serve.h"
 #include "tty.h"
 #include "vsock.h"
+#include "logstream.h"
 
 #include "../core/dispatch.h"
 #include "../core/util.h"
@@ -34,6 +35,8 @@ typedef struct {
     int    vsock;                       /* the kind: a vsock handle in vh, or fds */
     int    rfd, wfd, vh;
     int    discarding;
+    int    nowait;                      /* a log channel: what would block is dropped at once */
+    unsigned long dropped;              /* bytes so dropped */
     sbuf   line;
     char   name[64];
 } conn;
@@ -69,6 +72,12 @@ static void conn_write(conn *c, const char *buf, size_t len)
         if (n < 0 && errno == EINTR)
             continue;
         if (n == 0 || errno == EAGAIN || errno == EWOULDBLOCK) {
+            if (c->nowait) {
+                /* nobody on the host drains this channel (yet): the log is not the agent's
+                 * business to wait for, and a console with no reader would stall it */
+                c->dropped += len;
+                return;
+            }
             if (waited >= WRITE_STALL_MS) {
                 qga_log("%s: write stalled, dropping %lu bytes", c->name, (unsigned long)len);
                 return;
@@ -156,20 +165,18 @@ static void conn_close(conn *c)
     c->open = 0;
 }
 
-/* The serial side: (re)discovers and opens the node, quietly while nothing changes. */
-static void tty_try(conn *c, const char *tty, int *last_state)
+/* The serial side: (re)discovers and opens the node, quietly while nothing changes. "auto" is the
+ * nth /dev/cu.virtio-* (0 the agent's, 1 the log stream's). */
+static void tty_try(conn *c, const char *tty, int nth, int *last_state)
 {
     char path[256];
     channel ch;
-    int state;
 
     if (strcmp(tty, "auto") == 0) {
-        state = tty_discover(path, sizeof path);
-        if (state != 0) {
-            if (state != *last_state)
-                qga_log(state == -2 ? "several /dev/cu.virtio-* nodes; pin one with --tty"
-                                    : "no /dev/cu.virtio-* node yet");
-            *last_state = state;
+        if (tty_discover_nth(nth, path, sizeof path) != 0) {
+            if (*last_state != -1 && nth == 0)
+                qga_log("no /dev/cu.virtio-* node yet");
+            *last_state = -1;
             return;
         }
     } else {
@@ -191,23 +198,102 @@ static void tty_try(conn *c, const char *tty, int *last_state)
     c->discarding = strcmp(path, "-") != 0;
     strncpy(c->name, path, sizeof c->name - 1);
     c->name[sizeof c->name - 1] = '\0';
-    qga_log("serving %s", path);
+    c->nowait = nth != 0;
+    qga_log(nth == 0 ? "serving %s" : "log stream on %s", path);
 }
 
-int qga_serve(const char *tty, int vsock_port, int vsock_explicit)
+/* A vsock listener: (re)made when there is none, every VSOCK_RETRY seconds; quiet where there is
+ * no device unless the port was asked for. */
+static void vsock_try(int *listener, int port, int explicit_, time_t *next, int *logged, const char *what)
 {
-    conn t, v;
-    sbuf out;
-    int stdio = tty && strcmp(tty, "-") == 0;
-    int tty_state = 99, listener = -1, vsock_logged = 0;
-    time_t tty_next = 0, vsock_next = 0;
+    time_t now = time(NULL);
+
+    if (port <= 0 || *listener >= 0 || now < *next)
+        return;
+    *listener = qv_listen((unsigned int)port);
+    if (*listener >= 0) {
+        unsigned int hi = 0, lo = 0;
+
+        qv_local_cid(&hi, &lo);
+        qga_log("%s on vsock port %d (cid %u)", what, port, lo);
+        *logged = 0;
+        return;
+    }
+    if (explicit_ || (!*logged && errno != ENXIO))
+        qga_log("vsock port %d: %s", port, strerror(errno));
+    *logged = 1;
+    *next = now + VSOCK_RETRY;
+}
+
+/* Accepts on a listener, replacing the connection there was: a host that reconnects wants the new
+ * one. Returns 1 when a connection was accepted. Loses the listener (and the connection) on a reset. */
+static int vsock_service(int *listener, conn *c, int port, time_t *next, const char *what)
+{
+    unsigned int readable = 0, flags = 0;
+    int h;
+
+    if (*listener < 0)
+        return 0;
+    if (qv_poll(*listener, &readable, &flags) < 0 || (flags & QV_RESET)) {
+        qga_log("vsock port %d lost (%s)", port, strerror(errno));
+        conn_close(c);
+        qv_close(*listener);
+        *listener = -1;
+        *next = time(NULL) + 1;
+        return 0;
+    }
+    if (!(flags & QV_ACCEPT) || (h = qv_accept(*listener)) < 0)
+        return 0;
+    if (c->open)
+        qga_log("%s replaced by a new connection", c->name);
+    conn_close(c);
+    c->open = 1;
+    c->vsock = 1;
+    c->vh = h;
+    c->discarding = 0;                  /* a new stream has no stale tail */
+    c->nowait = strcmp(what, "agent") != 0;
+    sprintf(c->name, "vsock:%d", port);
+    qga_log("%s: connection accepted", what);
+    return 1;
+}
+
+/* Keeps the last QGA_LOG_HISTORY bytes of the log, cut at line starts. */
+static void history_add(sbuf *h, const char *p, size_t n)
+{
+    sb_append(h, p, n);
+    if (h->len > QGA_LOG_HISTORY) {
+        size_t cut = h->len - QGA_LOG_HISTORY;
+
+        while (cut < h->len && h->p[cut - 1] != '\n')
+            cut++;
+        memmove(h->p, h->p + cut, h->len - cut);
+        h->len -= cut;
+    }
+}
+
+int qga_serve(const qga_serve_cfg *cfg)
+{
+    conn t, v, lt, lv;                  /* agent: serial, vsock; log stream: serial, vsock */
+    sbuf out, newlog, history;
+    ls_tail tail;
+    int stdio = cfg->tty && strcmp(cfg->tty, "-") == 0;
+    int tty_state = 99, ltty_state = 99, listener = -1, llistener = -1, vlogged = 0, llogged = 0;
+    time_t tty_next = 0, ltty_next = 0, vsock_next = 0, lvsock_next = 0, tail_next = 0;
     unsigned char buf[4096];
 
     memset(&t, 0, sizeof t);
     memset(&v, 0, sizeof v);
+    memset(&lt, 0, sizeof lt);
+    memset(&lv, 0, sizeof lv);
     sb_init(&t.line);
     sb_init(&v.line);
+    sb_init(&lt.line);
+    sb_init(&lv.line);
     sb_init(&out);
+    sb_init(&newlog);
+    sb_init(&history);
+    if (cfg->log_path)
+        ls_tail_init(&tail, cfg->log_path);
 
     for (;;) {
         fd_set r, w;
@@ -215,26 +301,21 @@ int qga_serve(const char *tty, int vsock_port, int vsock_explicit)
         int maxfd = -1, rc;
         time_t now = time(NULL);
 
-        if (tty && !t.open && now >= tty_next) {
-            tty_try(&t, tty, &tty_state);
+        if (cfg->tty && !t.open && now >= tty_next) {
+            tty_try(&t, cfg->tty, 0, &tty_state);
             if (!t.open)
                 tty_next = now + RETRY_SECONDS;
         }
-        if (vsock_port > 0 && listener < 0 && now >= vsock_next) {
-            listener = qv_listen((unsigned int)vsock_port);
-            if (listener >= 0) {
-                unsigned int hi = 0, lo = 0;
-
-                qv_local_cid(&hi, &lo);
-                qga_log("serving vsock port %d (cid %u)", vsock_port, lo);
-                vsock_logged = 0;
-            } else {
-                /* auto: no device is the usual case, said once; asked for, every failure */
-                if (vsock_explicit || (!vsock_logged && errno != ENXIO))
-                    qga_log("vsock port %d: %s", vsock_port, strerror(errno));
-                vsock_logged = 1;
-                vsock_next = now + VSOCK_RETRY;
+        vsock_try(&listener, cfg->vsock_port, cfg->vsock_explicit, &vsock_next, &vlogged, "agent");
+        if (cfg->log_path) {
+            if (cfg->log_tty && !lt.open && now >= ltty_next) {
+                tty_try(&lt, cfg->log_tty, 1, &ltty_state);
+                if (lt.open && t.open && strcmp(lt.name, t.name) == 0)
+                    conn_close(&lt);    /* the one console there is is the agent's */
+                if (!lt.open)
+                    ltty_next = now + RETRY_SECONDS;
             }
+            vsock_try(&llistener, cfg->log_vsock_port, 0, &lvsock_next, &llogged, "log stream");
         }
 
         FD_ZERO(&r);
@@ -246,7 +327,7 @@ int qga_serve(const char *tty, int vsock_port, int vsock_explicit)
         qga_poll_fill(&r, &w, &maxfd);
         tv.tv_sec = 0;
         tv.tv_usec = VSOCK_TICK_MS * 1000;
-        if (listener < 0) {
+        if (listener < 0 && llistener < 0) {
             tv.tv_sec = 1;
             tv.tv_usec = 0;
         }
@@ -275,31 +356,7 @@ int qga_serve(const char *tty, int vsock_port, int vsock_explicit)
             }
         }
 
-        if (listener >= 0) {
-            unsigned int readable = 0, flags = 0;
-
-            if (qv_poll(listener, &readable, &flags) < 0 || (flags & QV_RESET)) {
-                qga_log("vsock listener lost (%s)", strerror(errno));
-                conn_close(&v);
-                qv_close(listener);
-                listener = -1;
-                vsock_next = time(NULL) + 1;
-            } else if (flags & QV_ACCEPT) {
-                int h = qv_accept(listener);
-
-                if (h >= 0) {
-                    if (v.open)
-                        qga_log("%s replaced by a new connection", v.name);
-                    conn_close(&v);
-                    v.open = 1;
-                    v.vsock = 1;
-                    v.vh = h;
-                    v.discarding = 0;   /* a new stream has no stale tail */
-                    sprintf(v.name, "vsock:%d", vsock_port);
-                    qga_log("vsock connection accepted");
-                }
-            }
-        }
+        vsock_service(&listener, &v, cfg->vsock_port, &vsock_next, "agent");
         if (v.open) {
             unsigned int readable = 0, flags = 0;
 
@@ -315,8 +372,35 @@ int qga_serve(const char *tty, int vsock_port, int vsock_explicit)
                     readable = readable > (unsigned int)n ? readable - (unsigned int)n : 0;
                 }
                 if ((flags & QV_RESET) || ((flags & QV_EOF) && readable == 0)) {
-                    qga_log("vsock connection closed");
+                    qga_log("agent: vsock connection closed");
                     conn_close(&v);
+                }
+            }
+        }
+
+        /* The log stream: new lines once a second, to every log channel that is open; a host that
+         * connects over vsock gets the history first. What the host sends there is not read. */
+        if (cfg->log_path) {
+            if (vsock_service(&llistener, &lv, cfg->log_vsock_port, &lvsock_next, "log stream") &&
+                history.len > 0)
+                conn_write(&lv, history.p, history.len);
+            if (lv.open) {
+                unsigned int readable = 0, flags = 0;
+
+                if (qv_poll(lv.vh, &readable, &flags) < 0 || (flags & (QV_RESET | QV_EOF | QV_NOSEND))) {
+                    qga_log("log stream: vsock connection closed");
+                    conn_close(&lv);
+                }
+            }
+            if (now >= tail_next) {
+                tail_next = now + 1;
+                sb_reset(&newlog);
+                if (ls_tail_poll(&tail, &newlog) > 0) {
+                    history_add(&history, newlog.p, newlog.len);
+                    if (lv.open)
+                        conn_write(&lv, newlog.p, newlog.len);
+                    if (lt.open)
+                        conn_write(&lt, newlog.p, newlog.len);
                 }
             }
         }
@@ -324,8 +408,16 @@ int qga_serve(const char *tty, int vsock_port, int vsock_explicit)
 
     sb_free(&t.line);
     sb_free(&v.line);
+    sb_free(&lt.line);
+    sb_free(&lv.line);
     sb_free(&out);
+    sb_free(&newlog);
+    sb_free(&history);
+    if (cfg->log_path)
+        ls_tail_free(&tail);
     if (listener >= 0)
         qv_close(listener);
+    if (llistener >= 0)
+        qv_close(llistener);
     return 0;
 }

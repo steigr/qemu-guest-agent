@@ -5,6 +5,7 @@
 #include "selftest.h"
 #include "transport/serve.h"
 #include "transport/vsock.h"
+#include "transport/logstream.h"
 
 #include <signal.h>
 #include <stdio.h>
@@ -55,6 +56,7 @@ static void find_self(const char *argv0)
 static void usage(void)
 {
     puts("usage: qemu-guest-agent [--tty PATH|auto|-|off] [--vsock PORT|auto|off] [--log FILE]\n"
+         "                        [--log-stream auto|off] [--log-source FILE]\n"
          "                        [--daemon [--pidfile FILE]]\n"
          "                        [--verbose] [--strict-exec] [--self-test] [--version]\n"
          "       qemu-guest-agent --install | --upgrade | --uninstall\n"
@@ -63,6 +65,9 @@ static void usage(void)
          "  --vsock PORT listen on a vsock port too, VirtioVsock.kext's (default: auto = port 7700\n"
          "               when there is a vsock device, quietly nothing when there is not)\n"
          "  --log FILE   append log messages to FILE instead of stderr\n"
+         "  --log-stream auto|off  ship the guest's log to the host (default auto: new lines of\n"
+         "               /var/log/system.log on vsock port 7701 and the second /dev/cu.virtio-*)\n"
+         "  --log-source FILE  the file the log stream follows\n"
          "  --verbose    log every request and response\n"
          "  --strict-exec  a guest-exec whose binary cannot be run fails the request (upstream qemu-ga);\n"
          "               default: the child exits 127 with the reason on stderr (Perl agent)");
@@ -71,7 +76,9 @@ static void usage(void)
 int main(int argc, char **argv)
 {
     const char *tty = "auto";
-    int vsock_port = QGA_VSOCK_PORT, vsock_explicit = 0;
+    int vsock_port = QGA_VSOCK_PORT, vsock_explicit = 0, log_stream = 1;
+    const char *log_source = QGA_LOG_PATH;
+    qga_serve_cfg cfg;
     const char *pidfile = QGA_PIDFILE;
     int k, daemonize = 0, have_log = 0;
 
@@ -99,6 +106,10 @@ int main(int argc, char **argv)
                     return 2;
                 }
             }
+        } else if (strcmp(argv[k], "--log-stream") == 0 && k + 1 < argc) {
+            log_stream = strcmp(argv[++k], "off") != 0;
+        } else if (strcmp(argv[k], "--log-source") == 0 && k + 1 < argc) {
+            log_source = argv[++k];
         } else if (strcmp(argv[k], "--log") == 0 && k + 1 < argc) {
             qga_log_open(argv[++k]);
             have_log = 1;
@@ -147,11 +158,20 @@ int main(int argc, char **argv)
 
     /* stdin/stdout is a test of one channel: no vsock beside it unless asked for. Otherwise the
      * channels are reopened for ever when lost (a kext reload, a VM restore). */
-    if (tty && strcmp(tty, "-") == 0 && !vsock_explicit)
-        vsock_port = 0;
+    if (tty && strcmp(tty, "-") == 0) {
+        if (!vsock_explicit)
+            vsock_port = 0;
+        log_stream = 0;
+    }
     if (!tty && !vsock_port) {
         usage();
         return 2;
     }
-    return qga_serve(tty, vsock_port, vsock_explicit);
+    cfg.tty = tty;
+    cfg.vsock_port = vsock_port;
+    cfg.vsock_explicit = vsock_explicit;
+    cfg.log_path = log_stream ? log_source : NULL;
+    cfg.log_tty = log_stream ? "auto" : NULL;
+    cfg.log_vsock_port = log_stream ? QGA_LOG_VSOCK_PORT : 0;
+    return qga_serve(&cfg);
 }

@@ -7,6 +7,8 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/select.h>
 #include <sys/time.h>
@@ -55,38 +57,43 @@ void tty_close(channel *ch)
     ch->rfd = ch->wfd = -1;
 }
 
-int tty_discover(char *out, size_t outlen)
+/* The nth /dev/cu.virtio-N node, counted from the lowest N: with two virtio consoles the first is
+ * the agent's and the second the log stream's (the host gives the agent's the lower PCI slot, and
+ * VirtioConsole numbers the nodes in the order the devices attach). */
+int tty_discover_nth(int nth, char *out, size_t outlen)
 {
     static const char prefix[] = "cu.virtio-";
     DIR *d = opendir("/dev");
     struct dirent *e;
-    int count = 0;
-    char first[256];
+    int nums[16], count = 0, k, m;
 
     if (!d)
         return -1;
-    first[0] = '\0';
-    while ((e = readdir(d)) != NULL) {
+    while ((e = readdir(d)) != NULL && count < 16) {
+        char *end;
+        long n;
+
         if (strncmp(e->d_name, prefix, sizeof prefix - 1) != 0)
             continue;
-        if (count == 0) {
-            strncpy(first, e->d_name, sizeof first - 1);
-            first[sizeof first - 1] = '\0';
-        }
-        count++;
-        if (count > 1)
-            qga_log("candidate: /dev/%s", e->d_name);
+        n = strtol(e->d_name + sizeof prefix - 1, &end, 10);
+        if (*end == '\0' && n >= 0)
+            nums[count++] = (int)n;
     }
     closedir(d);
-    if (count == 0)
+    for (k = 1; k < count; k++)         /* a handful: insertion sort */
+        for (m = k; m > 0 && nums[m - 1] > nums[m]; m--) {
+            int t = nums[m];
+
+            nums[m] = nums[m - 1];
+            nums[m - 1] = t;
+        }
+    if (nth >= count || outlen < sizeof "/dev/cu.virtio-" + 12)
         return -1;
-    if (count > 1) {
-        qga_log("candidate: /dev/%s", first);
-        return -2;
-    }
-    if (strlen(first) + 6 > outlen)
-        return -1;
-    strcpy(out, "/dev/");
-    strcat(out, first);
+    sprintf(out, "/dev/cu.virtio-%d", nums[nth]);
     return 0;
+}
+
+int tty_discover(char *out, size_t outlen)
+{
+    return tty_discover_nth(0, out, outlen);
 }

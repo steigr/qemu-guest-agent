@@ -1,4 +1,6 @@
 #include "selftest.h"
+#include <stdlib.h>
+#include "transport/logstream.h"
 
 #include "core/base64.h"
 #include "core/dispatch.h"
@@ -458,6 +460,56 @@ static void test_hw_freeze(void)
     CHECK(reply_is("{\"execute\":\"guest-fsfreeze-thaw\"}", "{\"return\":0}\n"));
 }
 
+static void append_file(const char *path, const char *text, int truncate_first)
+{
+    FILE *f = fopen(path, truncate_first ? "w" : "a");
+
+    if (f) {
+        fputs(text, f);
+        fclose(f);
+    }
+}
+
+/* The log stream's tail: new lines, a partial line held back, a rotation, and a start part-way
+ * into a big file cut at a line's start. */
+static void test_logstream(void)
+{
+    char path[256], moved[300];
+    ls_tail t;
+    sbuf o;
+    int k;
+
+    sprintf(path, "%s/qga-selftest-log.%d", getenv("TMPDIR") ? getenv("TMPDIR") : "/tmp", (int)getpid());
+    sprintf(moved, "%s.0", path);
+    sb_init(&o);
+    append_file(path, "old one\nold two\n", 1);
+    ls_tail_init(&t, path);
+    CHECK(ls_tail_poll(&t, &o) == 16 && strcmp(sb_cstr(&o), "old one\nold two\n") == 0);
+    sb_reset(&o);
+    append_file(path, "new\npart", 0);
+    CHECK(ls_tail_poll(&t, &o) == 4 && strcmp(sb_cstr(&o), "new\n") == 0);
+    sb_reset(&o);
+    append_file(path, "ial\n", 0);
+    CHECK(ls_tail_poll(&t, &o) == 8 && strcmp(sb_cstr(&o), "partial\n") == 0);
+    sb_reset(&o);
+    CHECK(ls_tail_poll(&t, &o) == 0);
+    rename(path, moved);                    /* newsyslog's rotation: a new file */
+    append_file(path, "rotated\n", 1);
+    CHECK(ls_tail_poll(&t, &o) == 8 && strcmp(sb_cstr(&o), "rotated\n") == 0);
+    ls_tail_free(&t);
+    sb_reset(&o);
+    append_file(path, "", 1);
+    for (k = 0; k < 2000; k++)
+        append_file(path, "0123456789012345678901234567890123456789012345678901234567890123456789\n", 0);
+    ls_tail_init(&t, path);
+    ls_tail_poll(&t, &o);
+    CHECK(o.len > 0 && o.len <= QGA_LOG_HISTORY && o.p[0] == '0' && o.len % 71 == 0);
+    ls_tail_free(&t);
+    sb_free(&o);
+    unlink(path);
+    unlink(moved);
+}
+
 int qga_selftest(void)
 {
     test_json();
@@ -474,6 +526,7 @@ int qga_selftest(void)
     test_exec();
     test_system();
     test_hw_freeze();
+    test_logstream();
     printf("%d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
 }

@@ -14,8 +14,9 @@ typedef struct {
 int tty_open(const char *path, channel *ch);
 void tty_close(channel *ch);
 
-/* Looks for /dev/cu.virtio-* nodes. Returns 0 and fills out when there is
- * exactly one, -1 if none, -2 if several (candidates are logged). */
+/* The lowest-numbered /dev/cu.virtio-* node (the agent's), or with tty_discover_nth the nth from
+ * the lowest (1: the log stream's). Returns 0 and fills out, -1 if there is none. */
 int tty_discover(char *out, size_t outlen);
+int tty_discover_nth(int nth, char *out, size_t outlen);
 
 #endif
