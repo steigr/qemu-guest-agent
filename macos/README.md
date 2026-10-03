@@ -52,7 +52,8 @@ throwaway NetInfo user for ssh keys (dedupe, remove, reset, owner/mode), passwor
 ## Layout
 
 - `core/` JSON parser/serializer, base64, command registry + dispatcher, buffer/log helpers.
-- `transport/` serial channel: raw termios open, `/dev/cu.virtio-*` discovery, framed read loop.
+- `transport/` channels: `tty.c` raw termios open and `/dev/cu.virtio-*` discovery, `vsock.c` libvsock
+  (PowerPC) or stubs, `serve.c` the one loop serving both with the line framing.
 - `commands/` one file per command family (`protocol`, `file`, `exec`, `system`, `hw`, `freeze`, `ssh`, `user`, `stat` applet); each exposes a `qga_*_register()`.
 - `selftest.c`, `tests/stdio.sh` host/guest tests.
 
@@ -62,6 +63,7 @@ throwaway NetInfo user for ssh keys (dedupe, remove, reset, owner/mode), passwor
 make test                          # host or guest: unit tests + stdio framing test
 make ARCH_FLAGS="-arch ppc"        # cross-arch flag if needed; on a PPC guest the default is ppc
 ./qemu-guest-agent --tty auto               # the only /dev/cu.virtio-*; --tty PATH to pin; --tty - for stdio
+./qemu-guest-agent --vsock 7700              # vsock as well (default: auto, port 7700 when there is a device)
 printf '{"execute":"guest-ping"}\n' | ./qemu-guest-agent --tty -
 ```
 
@@ -76,6 +78,26 @@ and record the evidence here when that milestone is reached.
   leading `0xFF`.
 - Writes never block indefinitely; data is dropped if the host does not drain it.
 - Several `cu.virtio-*` nodes and no `--tty`: refuses to guess, logs the candidates, retries.
+
+## vsock
+
+Besides the serial channel the agent listens on a vsock port, through `drivers/ppc/virtiovsock`'s
+libvsock (compiled in from there, on PowerPC only: its IOKit call is missing from current host SDKs,
+where the vsock calls are stubs that say there is no device). `--vsock auto`, the default, listens
+on port 7700 when the guest has a vsock device (`VirtioVsock.kext` loaded; the device is
+`vhost-vsock-pci`, so the host is Linux) and stays quiet when it has none, retrying every 10 s in
+case the kext loads later; `--vsock PORT` asks for a port and logs every failure; `--vsock off`;
+`--tty off` serves vsock alone. Both channels are served from one loop and share the commands'
+state (open files, exec'd children, the freeze); vsock handles are not file descriptors, so while
+vsock is up `select()` waits 20 ms and the handles are polled after it. One connection at a time: a
+new one replaces the old, which is what a host that reconnects needs. The host connects to the
+guest's CID, port 7700, with `AF_VSOCK`.
+
+Proven on 10.2.8 (`guest`, CID 302, 2026-10-04), the agent built there with GCC 3.1: from the
+pod, `guest-sync-delimited`, `guest-ping`, `guest-get-osinfo`, `guest-exec` with captured output,
+1 MiB of `/mach_kernel` through `guest-file-read` at 940 KB/s (the Perl agent over its channel: 25
+KB/s), a reconnect, and a second connection replacing the first. With no vsock device (the local
+ladder, 10.2.8) the agent serves the virtio console as before: `ladder.sh 10.2 virtio-test` passed.
 
 ## Running and installing
 

@@ -22,7 +22,7 @@ LDFLAGS   += $(ARCH_FLAGS) -framework IOKit -framework CoreFoundation
 SRCS = main.c selftest.c \
        core/util.c core/json.c core/base64.c core/dispatch.c \
        commands/protocol.c commands/file.c commands/exec.c commands/system.c commands/hw.c commands/freeze.c commands/ssh.c commands/user.c commands/stat.c \
-       install.c transport/tty.c
+       install.c transport/tty.c transport/serve.c transport/vsock.c
 OBJS = $(SRCS:.c=.o)
 
 all: qemu-guest-agent
