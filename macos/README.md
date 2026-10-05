@@ -124,7 +124,8 @@ Proven over vsock on 10.0.4 to 10.3.9 (above); over the second console by the la
 ```
 
 The installer warns when the Perl agent's StartupItem (`MacGuestAgent`) is present: two agents on the
-one channel would fight, so remove one. The StartupItem script avoids `RunService` (missing in 10.1's
+one channel would fight, so remove one. The package's postflight removes it, and the supervisor's
+install with the add-ons never puts it there (docs/guest-addons-plan.md in the repository root). The StartupItem script avoids `RunService` (missing in 10.1's
 `rc.common`). Not implemented: a config file.
 
 ## Source rules
