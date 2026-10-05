@@ -2,7 +2,7 @@
 
 Native QEMU Guest Agent (QGA protocol) for Mac OS X 10.0 - 10.5 on PPC, speaking over the
 `/dev/cu.virtio-N` node exposed by `drivers/ppc/virtioconsole`. Design, command scope, per-OS
-matrix and milestones: `doc/plans/ppc-macosx-qga-implementation-plan.md`.
+matrix and milestones: docs/ppc-macosx-qga-implementation-plan.md (the repository's).
 
 ## Status
 

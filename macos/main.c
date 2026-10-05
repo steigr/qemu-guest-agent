@@ -1,4 +1,4 @@
-/* qemu-guest-agent for PowerPC Mac OS X - see doc/plans/ppc-macosx-qga-implementation-plan.md */
+/* qemu-guest-agent for PowerPC Mac OS X - see docs/ppc-macosx-qga-implementation-plan.md at the repository's root */
 #include "core/dispatch.h"
 #include "core/util.h"
 #include "install.h"
