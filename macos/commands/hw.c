@@ -19,6 +19,11 @@
 #include <CoreFoundation/CoreFoundation.h>
 #include <IOKit/IOKitLib.h>
 
+/* The Intel build's x86_64 slice links IOKit and CoreFoundation weakly: Tiger runs that slice on a
+ * 64-bit CPU and has neither framework for it, so there they are NULL. Declared weak here so the
+ * compiler does not assume the address of a function is never NULL. */
+extern kern_return_t IOMasterPort(mach_port_t, mach_port_t *) __attribute__((weak_import));
+
 #define MEMORY_BLOCK_SIZE (128LL * 1024 * 1024)     /* nominal: memory never goes away */
 
 static qga_i64 physmem_bytes(void)
@@ -204,6 +209,10 @@ static int cmd_diskstats(const json *args, json **ret, char *err, size_t errlen)
     json *a = json_arr();
 
     (void)args;
+    if (!qga_hw_have_iokit()) {
+        json_free(a);
+        return qga_seterr(err, errlen, "IOKit is not available to this binary (x86_64 on 10.4)");
+    }
     if (IOMasterPort(MACH_PORT_NULL, &master) != KERN_SUCCESS ||
         IOServiceGetMatchingServices(master, IOServiceMatching("IOBlockStorageDriver"), &it) != KERN_SUCCESS) {
         json_free(a);
@@ -242,6 +251,11 @@ static int cmd_diskstats(const json *args, json **ret, char *err, size_t errlen)
     IOObjectRelease(it);
     *ret = a;
     return 0;
+}
+
+int qga_hw_have_iokit(void)
+{
+    return IOMasterPort != NULL;
 }
 
 void qga_hw_register(void)

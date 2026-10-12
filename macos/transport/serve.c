@@ -29,6 +29,17 @@
 #define VSOCK_RETRY    10               /* no vsock device (yet: the kext may load after us) */
 #define VSOCK_TICK_MS  20               /* select()'s wait while vsock handles are polled */
 #define WRITE_STALL_MS 3000             /* a peer that drains nothing for this long loses data */
+/* A UART -- the Intel releases' pci-serial, /dev/cu.*serial* -- is read every UART_TICK_MS whether
+ * or not select() says so, and reopened after UART_IDLE seconds without a request. Both are
+ * mav2287/mac-guest-agent's measurements on these releases, which this agent replaces there:
+ * Tiger's serial driver can stop waking select() while the fd stays valid (its issue #10: 300 of
+ * 300 samples in select, bytes queued, never read), and input queued past ~1.3 KB before anyone
+ * reads it is lost, so a request larger than the driver's buffer arrives only if it is drained
+ * every ~20 ms. A host that pings never leaves the channel idle that long; one that has gone costs
+ * a reopen. The virtio console needs neither: select() is woken by its own driver. */
+#define UART_TICK_MS   20
+#define UART_IDLE      600
+#define STATS_SECONDS  60
 
 typedef struct {
     int    open;
@@ -36,10 +47,19 @@ typedef struct {
     int    rfd, wfd, vh;
     int    discarding;
     int    nowait;                      /* a log channel: what would block is dropped at once */
+    int    uart;                        /* a serial port, not the virtio console: polled */
+    time_t last_request;                /* when a request last arrived, for UART_IDLE */
     unsigned long dropped;              /* bytes so dropped */
     sbuf   line;
     char   name[64];
 } conn;
+
+/* The agent channel's traffic, logged once a minute while there is any: a channel that goes quiet
+ * on the host's side has to be told apart from one that is talking and not being understood, and
+ * on 2026-10-09 neither El Capitan's nor Lion's agent could be asked which it was. */
+static struct {
+    unsigned long in, requests, out, stalled, resyncs, discarded, opens;
+} st, st_logged;
 
 static void msleep(int ms)
 {
@@ -64,6 +84,8 @@ static void conn_write(conn *c, const char *buf, size_t len)
         else
             n = write(c->wfd, buf, len);
         if (n > 0) {
+            if (!c->nowait)
+                st.out += (unsigned long)n;
             buf += n;
             len -= (size_t)n;
             waited = 0;
@@ -79,6 +101,7 @@ static void conn_write(conn *c, const char *buf, size_t len)
                 return;
             }
             if (waited >= WRITE_STALL_MS) {
+                st.stalled += (unsigned long)len;
                 qga_log("%s: write stalled, dropping %lu bytes", c->name, (unsigned long)len);
                 return;
             }
@@ -111,6 +134,8 @@ static void process_line(conn *c, const char *line, size_t len, sbuf *out)
         s++;
     if (s == len)
         return;                         /* blank line */
+    c->last_request = time(NULL);
+    st.requests++;
     if (qga_verbose)
         qga_log("%s <- %.*s", c->name, (int)(len - s > 300 ? 300 : len - s), line + s);
     sb_reset(out);
@@ -129,10 +154,15 @@ static void feed(conn *c, const unsigned char *buf, size_t n, sbuf *out)
         unsigned char ch = buf[k];
 
         if (ch == DELIM) {              /* peer resync: drop partial input */
+            st.resyncs++;
+            if (c->line.len > 0)
+                st.discarded++;
             sb_reset(&c->line);
             c->discarding = 0;
         } else if (ch == '\n') {
-            if (!c->discarding)
+            if (c->discarding)
+                st.discarded++;
+            else
                 process_line(c, c->line.p ? c->line.p : "", c->line.len, out);
             sb_reset(&c->line);
             c->discarding = 0;
@@ -199,6 +229,10 @@ static void tty_try(conn *c, const char *tty, int nth, int *last_state)
     strncpy(c->name, path, sizeof c->name - 1);
     c->name[sizeof c->name - 1] = '\0';
     c->nowait = nth != 0;
+    c->uart = strcmp(path, "-") != 0 && strncmp(path, "/dev/cu.virtio-", 15) != 0;
+    c->last_request = time(NULL);
+    if (nth == 0)
+        st.opens++;
     qga_log(nth == 0 ? "serving %s" : "log stream on %s", path);
 }
 
@@ -279,6 +313,7 @@ int qga_serve(const qga_serve_cfg *cfg)
     int stdio = cfg->tty && strcmp(cfg->tty, "-") == 0;
     int tty_state = 99, ltty_state = 99, listener = -1, llistener = -1, vlogged = 0, llogged = 0;
     time_t tty_next = 0, ltty_next = 0, vsock_next = 0, lvsock_next = 0, tail_next = 0;
+    time_t stats_next = time(NULL) + STATS_SECONDS;
     unsigned char buf[4096];
 
     memset(&t, 0, sizeof t);
@@ -301,6 +336,15 @@ int qga_serve(const qga_serve_cfg *cfg)
         int maxfd = -1, rc;
         time_t now = time(NULL);
 
+        if (now >= stats_next) {
+            stats_next = now + STATS_SECONDS;
+            if (memcmp(&st, &st_logged, sizeof st) != 0) {
+                qga_log("channel: %lu bytes in, %lu requests, %lu bytes out, %lu dropped unsent, "
+                        "%lu resyncs, %lu partial lines discarded, %lu opens (totals)",
+                        st.in, st.requests, st.out, st.stalled, st.resyncs, st.discarded, st.opens);
+                st_logged = st;
+            }
+        }
         if (cfg->tty && !t.open && now >= tty_next) {
             tty_try(&t, cfg->tty, 0, &tty_state);
             if (!t.open)
@@ -327,9 +371,11 @@ int qga_serve(const qga_serve_cfg *cfg)
         qga_poll_fill(&r, &w, &maxfd);
         tv.tv_sec = 0;
         tv.tv_usec = VSOCK_TICK_MS * 1000;
-        if (listener < 0 && llistener < 0) {
+        if (listener < 0 && llistener < 0 && !(t.open && t.uart)) {
             tv.tv_sec = 1;
             tv.tv_usec = 0;
+        } else if (t.open && t.uart) {
+            tv.tv_usec = UART_TICK_MS * 1000;
         }
         rc = select(maxfd + 1, &r, &w, NULL, &tv);
         if (rc < 0 && errno != EINTR) {
@@ -339,12 +385,26 @@ int qga_serve(const qga_serve_cfg *cfg)
         }
         qga_poll_service();             /* child I/O and reaping, also on timeout */
 
-        if (t.open && rc > 0 && FD_ISSET(t.rfd, &r)) {
+        if (t.open && t.uart && now - t.last_request >= UART_IDLE) {
+            qga_log("%s: no request for %d s, reopening", t.name, UART_IDLE);
+            conn_close(&t);
+            tty_next = now;
+        }
+        if (t.open && ((rc > 0 && FD_ISSET(t.rfd, &r)) || t.uart)) {
+            int woken = rc > 0 && FD_ISSET(t.rfd, &r);
             ssize_t n = read(t.rfd, buf, sizeof buf);
 
+            /* A UART read when select() did not say so: with VMIN 0 a non-blocking tty read
+             * returns 0 when there is nothing, which is not an end. */
             if (n > 0) {
+                st.in += (unsigned long)n;
                 feed(&t, buf, (size_t)n, &out);
-            } else if (n == 0 || (errno != EAGAIN && errno != EINTR && errno != EWOULDBLOCK)) {
+                while (t.uart && n == (ssize_t)sizeof buf && (n = read(t.rfd, buf, sizeof buf)) > 0) {
+                    st.in += (unsigned long)n;
+                    feed(&t, buf, (size_t)n, &out);
+                }
+            } else if ((n == 0 && (woken || !t.uart)) ||
+                       (n < 0 && errno != EAGAIN && errno != EINTR && errno != EWOULDBLOCK)) {
                 if (n == 0 && stdio) {
                     conn_close(&t);
                     break;              /* stdin's end is the end of a test */
@@ -368,6 +428,7 @@ int qga_serve(const qga_serve_cfg *cfg)
 
                     if (n <= 0)
                         break;
+                    st.in += (unsigned long)n;
                     feed(&v, buf, (size_t)n, &out);
                     readable = readable > (unsigned int)n ? readable - (unsigned int)n : 0;
                 }

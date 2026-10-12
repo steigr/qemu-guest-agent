@@ -1,4 +1,4 @@
-/* qemu-guest-agent for PowerPC Mac OS X - see docs/ppc-macosx-qga-implementation-plan.md at the repository's root */
+/* qemu-guest-agent for Mac OS X, PowerPC and Intel - see docs/ppc-macosx-qga-implementation-plan.md at the repository's root */
 #include "core/dispatch.h"
 #include "core/util.h"
 #include "install.h"
@@ -61,7 +61,8 @@ static void usage(void)
          "                        [--verbose] [--strict-exec] [--self-test] [--version]\n"
          "       qemu-guest-agent --install | --upgrade | --uninstall\n"
          "  --tty PATH   serial node to serve (default: auto = the only /dev/cu.virtio-*)\n"
-         "               '-' serves stdin/stdout, for testing\n"
+         "               '-' serves stdin/stdout, for testing; --path is the same option, under\n"
+         "               the name the Intel releases' launcher gives it (mac-guest-agent's)\n"
          "  --vsock PORT listen on a vsock port too, VirtioVsock.kext's (default: auto = port 7700\n"
          "               when there is a vsock device, quietly nothing when there is not)\n"
          "  --log FILE   append log messages to FILE instead of stderr\n"
@@ -87,7 +88,7 @@ int main(int argc, char **argv)
         return qga_applet_stat(argc - 3, argv + 3);
 
     for (k = 1; k < argc; k++) {
-        if (strcmp(argv[k], "--tty") == 0 && k + 1 < argc) {
+        if ((strcmp(argv[k], "--tty") == 0 || strcmp(argv[k], "--path") == 0) && k + 1 < argc) {
             tty = argv[++k];
             if (strcmp(tty, "off") == 0)
                 tty = NULL;

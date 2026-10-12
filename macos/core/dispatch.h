@@ -8,7 +8,7 @@
 #include <sys/time.h>
 #include <unistd.h>
 
-#define QGA_VERSION "0.1.0"
+#define QGA_VERSION "0.2.3"
 
 /* Handler contract: return 0 and optionally set *ret (NULL means `{}`), or
  * return non-zero after writing a message to err (reported as GenericError).
@@ -57,6 +57,7 @@ void qga_exec_register(void);       /* commands/exec.c */
 extern int qga_exec_strict;         /* exec failure fails guest-exec instead of exit code 127 */
 void qga_system_register(void);     /* commands/system.c */
 void qga_hw_register(void);         /* commands/hw.c: memory, cpustats, disks */
+int  qga_hw_have_iokit(void);       /* 0 in the x86_64 slice on Tiger: no diskstats there */
 void qga_freeze_register(void);     /* commands/freeze.c */
 void qga_ssh_register(void);        /* commands/ssh.c */
 void qga_user_register(void);       /* commands/user.c */

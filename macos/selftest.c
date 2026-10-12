@@ -437,7 +437,7 @@ static void test_hw_freeze(void)
     CHECK(r && r->type == J_ARR);
     json_free(keep);
     r = call("{\"execute\":\"guest-get-diskstats\"}", &keep);
-    CHECK(r && r->type == J_ARR);
+    CHECK(qga_hw_have_iokit() ? r && r->type == J_ARR : r == NULL);
     json_free(keep);
 
     /* Freeze state machine: thawed -> frozen -> thawed, file/exec refused while frozen. */

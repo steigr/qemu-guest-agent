@@ -1,7 +1,8 @@
-# qemu-guest-agent for PowerPC Mac OS X
+# qemu-guest-agent for Mac OS X
 
 Native QEMU Guest Agent (QGA protocol) for Mac OS X 10.0 - 10.5 on PPC, speaking over the
-`/dev/cu.virtio-N` node exposed by `drivers/ppc/virtioconsole`. Design, command scope, per-OS
+`/dev/cu.virtio-N` node exposed by `drivers/ppc/virtioconsole`, and for the Intel releases 10.4 -
+10.15 over the pci-serial port the orchestrator gives them (see "Intel"). Design, command scope, per-OS
 matrix and milestones: docs/ppc-macosx-qga-implementation-plan.md (the repository's).
 
 ## Status
@@ -48,6 +49,38 @@ throwaway NetInfo user for ssh keys (dedupe, remove, reset, owner/mode), passwor
 - **`guest-set-user-password`:** `dscl . -passwd` where `/usr/bin/dscl` exists (plain text only);
   otherwise NetInfo: `niutil -createprop . /users/NAME passwd HASH` with a `crypt()` hash (DES: only the
   first 8 characters count). The password is passed to the tool as an argument, so it is briefly visible in `ps`.
+
+## Intel
+
+The Intel releases before Big Sur have no agent of their own, and since 2026-10-08 run this one in
+place of mav2287/mac-guest-agent: one universal binary, i386 and x86_64, which the orchestrator
+stages as `/usr/local/bin/qemu-guest-agent` and launchd runs as `qemu-guest-agent --path
+/dev/cu.pci-serial2` (`--path` is `--tty`, under the name that agent's launcher used).
+
+- **Built on Snow Leopard** with Xcode 3.2.6 from its retail DVD (`make intel`): i386 with GCC 4.0
+  and the 10.4u SDK, x86_64 with GCC 4.2 and the 10.5 SDK, both with 10.4 as the minimum, joined
+  with `lipo`. i386 runs on 10.4 to 10.14; 10.15 runs only x86_64.
+- **Tiger takes the x86_64 slice** on a 64-bit CPU, and has an x86_64 libSystem but no x86_64 IOKit
+  or CoreFoundation. That slice links them weakly, so it loads there; `guest-get-diskstats`, the only
+  command that needs IOKit, says so instead of answering. The installer stages Tiger's copy thinned
+  to i386 (`ditto --arch i386`), which has both, so this matters only for the agent the installer
+  runs from its provisioning media.
+- **The UART is polled.** A pci-serial port is read every 20 ms whether or not `select()` says so,
+  and reopened after ten minutes without a request: mav2287/mac-guest-agent measured that Tiger's
+  serial driver can stop waking `select()` with bytes queued, and loses input queued past ~1.3 KB
+  before it is read. The virtio console is not polled.
+- `build-intel.sh` does all of it against a running `guest` in the cluster: the Xcode
+  packages from the DVD image (verified by SHA-256, installed one by one), the source, the build,
+  both slices' self-tests, and the binary back with a `BUILD-INFO` in `guest/dist/`.
+  `make guest-agent-image` at the repository's root publishes it as the chart's `guestAgent.image`.
+
+Verified: 121 self-test checks on 10.6.8 (both slices, `arch -i386` / `arch -x86_64`) and on
+10.4.11 (the x86_64 slice, which is the one Tiger chose). In the extended gauntlet of 2026-10-10
+to 2026-10-12 (docs/gauntlet/2026-10-12-extended.md), 0.2.3 was the agent of every release from
+10.0 to 10.15, each installed from nothing: on the virtio console on PowerPC, on pci-serial on Intel,
+through the install, the update restarts and the checks. Two faults remain open: TODO.md's "An
+Intel guest's agent sometimes half-stalls after a boot" and TODO.md's "Leopard's first boot after
+10.5.8 hangs every command run through /bin/sh".
 
 ## Layout
 

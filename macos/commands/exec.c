@@ -13,7 +13,9 @@
 #include <string.h>
 #include <sys/wait.h>
 
-#define MAX_PROCS 32
+/* 64, mav2287/mac-guest-agent's table size, which internal/controllers/guestagent's MaxStrays (24
+ * commands abandoned unfinished before timer polls are refused) was sized against. */
+#define MAX_PROCS 64
 #define CAPTURE_MAX (1024 * 1024)   /* per stream; excess is discarded and flagged */
 
 extern char **environ;

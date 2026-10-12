@@ -31,16 +31,24 @@ int tty_open(const char *path, channel *ch)
     if (fd < 0)
         return -1;
     if (tcgetattr(fd, &t) == 0) {
-        /* Hand-rolled cfmakeraw(): not guaranteed on the oldest releases. */
-        t.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR |
-                       ICRNL | IXON | IXOFF | IXANY);
-        t.c_oflag &= ~OPOST;
-        t.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
-        t.c_cflag &= ~(CSIZE | PARENB | CSTOPB);
-        t.c_cflag |= CS8 | CLOCAL | CREAD;
+        /* Raw, and every flag set rather than some cleared: a bit the driver turned on by default
+         * and nothing here turned off -- hardware flow control, say -- is a channel that answers
+         * on one release and not on the next. These are mav2287/mac-guest-agent's settings, which
+         * ran on every Intel release this agent replaced it on. Live on 2026-10-09, El Capitan's
+         * first boot with this agent and the old, bit-clearing settings: requests arrived, a few
+         * were answered, and then for forty minutes nearly none were. Whether a flag left on was
+         * why is not known; with these, it cannot be. The speed is left alone: QEMU's pci-serial
+         * ignores it. */
+        t.c_iflag = 0;
+        t.c_oflag = 0;
+        t.c_lflag = 0;
+        t.c_cflag = CS8 | CREAD | CLOCAL;
         t.c_cc[VMIN] = 0;
         t.c_cc[VTIME] = 0;
         tcsetattr(fd, TCSANOW, &t);
+        /* What a previous open left unsent is a reply to a host that has given up on it. Output
+         * only: the input may already hold the host's resync. */
+        tcflush(fd, TCOFLUSH);
     }
     fcntl(fd, F_SETFD, FD_CLOEXEC);     /* spawned children must not inherit the channel */
     fl = fcntl(fd, F_GETFL, 0);

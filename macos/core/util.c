@@ -97,33 +97,45 @@ const char *sb_cstr(sbuf *b)
     return b->p;
 }
 
-static FILE *log_fp = NULL;
+/* Up to two logs: --log may be given twice. On the Intel releases the console is one -- the host
+ * keeps the guest's serial console, but only while the guest boots -- and a file the other. */
+#define MAX_LOGS 2
+static FILE *log_fps[MAX_LOGS];
+static int log_count = 0;
 int qga_verbose = 0;
 
 void qga_log_open(const char *path)
 {
     FILE *fp = fopen(path, "a");
-    if (fp)
-        log_fp = fp;
-    else
+
+    if (!fp)
         fprintf(stderr, "qemu-guest-agent: cannot open log %s\n", path);
+    else if (log_count < MAX_LOGS)
+        log_fps[log_count++] = fp;
+    else
+        fclose(fp);
 }
 
 void qga_log(const char *fmt, ...)
 {
-    FILE *fp = log_fp ? log_fp : stderr;
-    char ts[32];
+    char ts[32], msg[1024];
     time_t now = time(NULL);
     va_list ap;
+    int k;
 
     if (strftime(ts, sizeof ts, "%Y-%m-%d %H:%M:%S", localtime(&now)) == 0)
         ts[0] = '\0';
-    fprintf(fp, "%s qemu-guest-agent: ", ts);
     va_start(ap, fmt);
-    vfprintf(fp, fmt, ap);
+    vsnprintf(msg, sizeof msg, fmt, ap);
     va_end(ap);
-    fputc('\n', fp);
-    fflush(fp);
+    if (log_count == 0) {
+        fprintf(stderr, "%s qemu-guest-agent: %s\n", ts, msg);
+        fflush(stderr);
+    }
+    for (k = 0; k < log_count; k++) {
+        fprintf(log_fps[k], "%s qemu-guest-agent: %s\n", ts, msg);
+        fflush(log_fps[k]);
+    }
 }
 
 int qga_seterr(char *err, size_t errlen, const char *fmt, ...)
