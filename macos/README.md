@@ -114,9 +114,11 @@ and record the evidence here when that milestone is reached.
 
 ## vsock
 
-Besides the serial channel the agent listens on a vsock port, through `drivers/ppc/virtiovsock`'s
-libvsock (compiled in from there, on PowerPC only: its IOKit call is missing from current host SDKs,
-where the vsock calls are stubs that say there is no device). `--vsock auto`, the default, listens
+Besides the serial channel the agent listens on a vsock port, through `drivers/virtiovsock`'s
+libvsock, compiled in from there on every platform (since 0.3.0: on Intel it takes 10.5's
+`IOConnectCall*Method` in the x86_64 slice and 10.0's calls in the i386 one; where there is no kext,
+every host among them, it says there is no device). On Intel the host dials vsock first and
+pci-serial after it, and the kext is put on the installed system by the installer. `--vsock auto`, the default, listens
 on port 7700 when the guest has a vsock device (`VirtioVsock.kext` loaded; the device is
 `vhost-vsock-pci`, so the host is Linux) and stays quiet when it has none, retrying every 10 s in
 case the kext loads later; `--vsock PORT` asks for a port and logs every failure; `--vsock off`;

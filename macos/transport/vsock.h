@@ -1,8 +1,8 @@
-/* vsock.h - the agent's view of libvsock (drivers/ppc/virtiovsock): stream sockets over
- * VirtioVsock.kext. Handles are not file descriptors, so the serve loop polls them. Built in on
- * PowerPC only: libvsock calls an IOKit user client through IOConnectMethodScalarIScalarO, which a
- * current host SDK no longer has; elsewhere every call fails with ENXIO, as on a guest without the
- * device. */
+/* vsock.h - the agent's view of libvsock (drivers/virtiovsock): stream sockets over
+ * VirtioVsock.kext. Handles are not file descriptors, so the serve loop polls them. Built in
+ * everywhere: libvsock calls the kext's IOKit user client with 10.0's calls in a 32-bit process and
+ * 10.5's in a 64-bit one, which a current SDK has too. Where there is no kext -- every host, and a
+ * guest without the device -- every call fails with ENXIO. */
 #ifndef QGA_VSOCK_H
 #define QGA_VSOCK_H
 
