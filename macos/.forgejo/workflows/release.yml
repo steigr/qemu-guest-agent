@@ -68,7 +68,8 @@ jobs:
               # "name=path": another repository's tree at <path> beside this one, for a build that includes its sources
               n=${s%%=*}; pth=${s##*=}
               rm -rf "payload/$pth"; mkdir -p "payload/$pth"
-              git -c http.extraHeader="Authorization: bearer ${{ forgejo.token }}" \
+              # the job's token reads only this repository: the ID token (read:repository on that one repository) reads the other
+              git -c http.extraHeader="Authorization: bearer ${{ steps.jwt.outputs.jwt }}" \
                 clone --depth 1 -q "${{ forgejo.server_url }}/${{ forgejo.repository_owner }}/$n.git" "payload/$pth"
               rm -rf "payload/$pth/.git"
             done
