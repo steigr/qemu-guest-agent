@@ -77,7 +77,7 @@ jobs:
             LAYOUT="$LAYOUT" VERSION="$VERSION" sh src/ci/runner-app-build.sh "$variant" payload "stage-$variant"
             echo "::endgroup::"
           done
-          ls -R stage-* | head -40
+          ls -R stage-* > ls.txt; head -40 ls.txt
 
       - name: Package
         run: |
