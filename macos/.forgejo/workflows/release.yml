@@ -44,6 +44,7 @@ jobs:
           FORGEJO_OWNER: ${{ forgejo.repository_owner }}
         run: |
           . src/ci/component.sh
+          export SOURCES DEPENDS
           rm -rf payload dl
           mkdir -p dl payload/deps
           sh src/ci/fetch-sources.sh dl
