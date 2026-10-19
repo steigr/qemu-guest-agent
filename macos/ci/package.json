@@ -1,0 +1,11 @@
+{
+  "name": "QemuGuestAgent",
+  "identifier": "gr.stei.qemu-guest-agent",
+  "version": "0.0.0",
+  "title": "QEMU Guest Agent",
+  "description": "Native QEMU guest agent (QGA protocol) over the virtio console, with its startup item. Replaces the Perl agent.",
+  "files": [
+    {"src": "qemu-guest-agent", "dest": "/usr/local/libexec/qemu-guest-agent", "mode": "0755"}
+  ],
+  "scripts": {"postflight": "scripts/qemu-guest-agent.postflight"}
+}

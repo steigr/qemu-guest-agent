@@ -1,0 +1,14 @@
+#!/bin/sh
+# Installer runs this as root with $3 the target volume. The agent writes its own startup item
+# (--upgrade), so that text lives in one place, install.c.
+[ "$3" = "/" ] || exit 0
+# Two agents on the one channel fight, and a guest with this agent has no other: the supervisor's
+# Perl agent goes, its item and its script (docs/guest-addons-plan.md's "Decisions"). It was set
+# aside in /var/backups until 2026-10-05.
+rm -rf /Library/StartupItems/MacGuestAgent /usr/local/libexec/mac-guest-agent.pl
+/usr/local/libexec/qemu-guest-agent --upgrade
+# and running now, as Dropbear's postflight starts Dropbear: a Perl agent removed above still holds
+# the channel until it is stopped
+pkill -f mac-guest-agent.pl 2>/dev/null || kill `ps ax | awk '/[m]ac-guest-agent.pl/ {print $1}'` 2>/dev/null
+/Library/StartupItems/QemuGuestAgent/QemuGuestAgent start
+exit 0
