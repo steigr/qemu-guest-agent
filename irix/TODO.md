@@ -1,5 +1,5 @@
 # TODO
 
-- Benchmark throughput: file copy in (`guest-file-write`), file copy out (`guest-file-read`) and
-  command output streaming (`guest-exec` with `capture-output`). The only numbers so far are the
-  1 MiB round trip's time in `tests/iris/run_tests.py`, which is a test and not a measurement.
+- Find out why iris's TCP ports stay taken after it exits. They were still in `netstat` up to 72 s
+  later, and an emulator started in that time carries on with no telnet, monitor or TCP console. The
+  cause is not known; `tests/iris/boot-ip28.sh` waits for them.

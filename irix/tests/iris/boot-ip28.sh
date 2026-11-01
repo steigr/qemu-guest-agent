@@ -19,6 +19,25 @@ inst=${IRIX_INSTANCE:-$IRIX_INSTANCE}
 slot=${VIRTIO_SLOT:-exp0}
 root=$(cd "$(dirname "$0")/../.." && pwd)
 work=${1:-$(mktemp -d "${TMPDIR:-/tmp}/virtio-iris.XXXXXX")}
+
+# Two emulators on one overlay ruin the filesystem in it, and only an iris with
+# overlay locking (feature/overlay-lock) refuses by itself.
+if [ -e "$inst/irix65.raw.overlay" ] && lsof -t "$inst/irix65.raw.overlay" >/dev/null 2>&1; then
+	echo "$inst/irix65.raw.overlay is in use by another emulator" >&2
+	exit 1
+fi
+
+# iris carries on when it cannot bind a port, and then nothing can reach the
+# guest. Ports can stay taken for a while after an emulator exits.
+n=0
+while netstat -an -p tcp | grep -E '127\.0\.0\.1\.(12323|18888|18890) ' >/dev/null; do
+	n=$((n + 1))
+	if [ "$n" -gt 60 ]; then
+		echo "ports 12323, 18888 or 18890 are still taken" >&2
+		exit 1
+	fi
+	sleep 2
+done
 mkdir -p "$work"
 
 cat > "$work/iris.toml" <<EOF

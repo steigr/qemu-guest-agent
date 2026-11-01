@@ -79,6 +79,9 @@ With no `--tty` the agent looks for `/hw/virtio-ports/org.qemu.guest_agent.0`, t
 - A vioser port reads as end of file while no host is connected. The agent keeps it open and
   tries it every 200 ms; a host that comes back is served at once, with no partial line left
   over from the last connection.
+- A host may send requests and hang up without waiting: they are all served, and the replies
+  dropped. This needs IRIS's `feature/virtio-serial-close-drain`; before it, the end of what the
+  host sent was lost.
 - If the port goes away (a read error) it reopens it every 2 s, and never exits for this.
 - After an open, input up to the first newline or `0xFF` is discarded: it may be a stale tail.
   A host that was already connected and does not resync loses its first request.
@@ -93,6 +96,32 @@ With no `--tty` the agent looks for `/hw/virtio-ports/org.qemu.guest_agent.0`, t
 `--log-stream auto` (the default) follows `/var/adm/SYSLOG` and writes new lines to the
 `org.iris.log.0` port if there is one. A host that connects first gets the last 64 KB. After
 that, what would block is dropped. `--log-stream off`; `--log-source FILE` for another file.
+
+## Throughput
+
+`tests/iris/bench.py`, IP28 under IRIS built with `lightning,idle-pause`, on a shared and busy
+Mac (load 5 to 7 during the `exp0` run, 11 to 22 during `exp1`, so `exp1`'s figures are the
+noisier). Medians of 3 runs of 4 MiB, in KiB/s of payload. Agent 0.1.0, 2026-11-01, on the IRIS
+device as it was before the hang-up fix in "Channel behaviour".
+
+| | `exp0` (interrupts) | `exp1` (polled) |
+|---|---|---|
+| File copy in, 4 / 16 / 48 KiB chunks | 342 / 496 / 530 | 231 / 388 / 395 |
+| File copy out, 4 / 16 / 48 KiB chunks | 489 / 699 / 800 | 297 / 520 / 412 |
+| `guest-exec` captured output, 1 MiB, start to finish | 745 | 402 |
+| Bare port, guest to host, no agent | 20025 | 3237 |
+| Bare port, host to guest, no agent, through `cat \| wc -c` | 3268 | 3101 |
+| `guest-ping` round trip, median | 6.0 ms | 10.0 ms |
+
+- **The agent is the limit, not the port.** During a 16 MiB copy on `exp0` the agent used 29 of 31 s
+  (in) and 19 of 21 s (out) of CPU: JSON and base64, a byte at a time, on an emulated CPU.
+- **The disk does not show.** `/dev/null` and `/dev/zero` give the same figures as a file, within
+  noise. Copies go to the buffer cache, with no fsync.
+- **Command output does not stream.** `guest-exec-status` returns output only once the command has
+  exited, so one that prints at once and then sleeps 5 s shows nothing for 5 s. More than 1 MiB per
+  stream is cut off, with `out-truncated` set.
+- Bigger chunks are faster: use the largest that fits. `guest-file-read` takes up to 64 KiB, and a
+  request line up to 256 KiB.
 
 ## Build and test
 

@@ -3,7 +3,7 @@
 tests/iris/boot-ip28.sh, plays the host end of the agent's port and checks what
 it says against what the guest says over telnet.
 
-    tests/iris/run_tests.py WORKDIR [--show] [--shutdown]
+    tests/iris/run_tests.py WORKDIR [--show] [--shutdown] [--close-only]
 
 WORKDIR is boot-ip28.sh's work directory, which holds agent.sock and log.sock.
 The guest needs vioser loaded and the agent built (smake, in /share).
@@ -19,6 +19,7 @@ import os
 import socket
 import subprocess
 import sys
+import threading
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -28,6 +29,9 @@ AGENT = "/tmp/qemu-guest-agent.obj/qemu-guest-agent"
 PIDFILE = "/tmp/qga-test.pid"
 LOGFILE = "/tmp/qga-test.log"
 USER = "qgatest"
+MONITOR_PORT = 18888
+PORT = "/hw/virtio-ports/org.qemu.guest_agent.0"
+INIT = "/etc/init.d/qemu-guest-agent"
 
 results = []
 show = False
@@ -325,6 +329,47 @@ def test_channel(sock):
     h.close()
 
 
+def test_close_after_send(sock):
+    """What a host sends just before it hangs up still arrives: a run of writes it
+    does not wait for the replies to, which the agent then answers to nobody."""
+    path = "/usr/tmp/qga-close.bin"
+    data = bytes(range(256)) * 16
+    count = 128
+    h = Host(sock)
+    h.sync(1)
+    fd = h.ret("guest-file-open", path=path, mode="w")
+    req = json.dumps({"execute": "guest-file-write",
+                      "arguments": {"handle": fd, "buf-b64": base64.b64encode(data).decode()}}).encode() + b"\n"
+    h.send(req * count)
+    h.close()
+    h = Host(sock)
+    check("close: a new host can sync after one that hung up", h.sync(2))
+    h.ret("guest-file-close", handle=fd)
+    got = h.get(path)
+    check(f"close: {count} writes sent just before a hang-up all arrive", got == data * count,
+          f"{len(got)} bytes of {len(data) * count}")
+    h.run("/bin/rm", "-f", path)
+    h.close()
+
+
+def bare_port_close(sock, size=4 * 1024 * 1024):
+    """The same with no agent: bytes on the bare port, then an immediate close."""
+    guest(f"{INIT} stop; sleep 1")
+    s = socket.socket(socket.AF_UNIX)
+    s.connect(sock)
+    s.settimeout(120)
+    time.sleep(1)
+    counted = []
+    job = threading.Thread(target=lambda: counted.append(guest(f"/sbin/cat {PORT} | wc -c")[1]), daemon=True)
+    job.start()
+    time.sleep(3)
+    s.sendall(bytes(range(256)) * (size // 256))
+    s.close()
+    job.join(120)
+    check(f"close: {size} bytes on the bare port, then a close", counted and str(size) in counted[0].split(),
+          str(counted))
+
+
 def secs(ps_time):
     # The last word that looks like [hh:]mm:ss: the shell's own lines may follow it.
     parts = [w for w in ps_time.split() if ":" in w][-1].split(":")
@@ -358,13 +403,22 @@ def test_log_stream(sock):
     s.close()
 
 
+def emulator_up():
+    """The emulator's monitor port answers. Not by process name: iris may be called anything."""
+    try:
+        socket.create_connection(("127.0.0.1", MONITOR_PORT), timeout=2).close()
+        return True
+    except OSError:
+        return False
+
+
 def test_shutdown(h, work):
     h.send(b'{"execute":"guest-shutdown","arguments":{"mode":"powerdown"}}\n')
     log = os.path.join(work, "console.log")
     end = time.time() + 180
     down = False
     while time.time() < end and not down:
-        down = subprocess.run(["pgrep", "-x", "iris"], capture_output=True).returncode != 0
+        down = not emulator_up()
         time.sleep(2)
     check("guest-shutdown powers the guest off", down)
     if os.path.exists(log):
@@ -378,6 +432,7 @@ def main():
     ap.add_argument("workdir")
     ap.add_argument("--show", action="store_true")
     ap.add_argument("--shutdown", action="store_true")
+    ap.add_argument("--close-only", action="store_true", help="only the tests of a host that hangs up")
     a = ap.parse_args()
     show = a.show
     os.chdir(a.workdir)                 # a Unix socket's path has to be short
@@ -387,6 +442,14 @@ def main():
         sys.exit(f"{AGENT} is not built: run smake in the guest's /share")
     stop_agent()
     guest(f"rm -f {LOGFILE}; [ -f /var/run/qemu-guest-agent.pid ] && /etc/init.d/qemu-guest-agent stop")
+    if a.close_only:
+        bare_port_close("agent.sock")
+        start_agent()
+        test_close_after_send("agent.sock")
+        stop_agent()
+        failed = [n for n, ok in results if not ok]
+        print(f"\n{len(results) - len(failed)} of {len(results)} passed")
+        sys.exit(1 if failed else 0)
     start_agent()
     h = Host("agent.sock")
     try:
@@ -400,6 +463,7 @@ def main():
         test_freeze(h)
         h.close()
         test_channel("agent.sock")
+        test_close_after_send("agent.sock")
         test_log_stream("log.sock")
         _, log = guest(f"cat {LOGFILE}")
         print(log)
