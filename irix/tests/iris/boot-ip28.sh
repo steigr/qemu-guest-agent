@@ -21,7 +21,7 @@ root=$(cd "$(dirname "$0")/../.." && pwd)
 work=${1:-$(mktemp -d "${TMPDIR:-/tmp}/virtio-iris.XXXXXX")}
 
 # Two emulators on one overlay ruin the filesystem in it, and only an iris with
-# overlay locking (feature/overlay-lock) refuses by itself.
+# overlay locking refuses by itself.
 if [ -e "$inst/irix65.raw.overlay" ] && lsof -t "$inst/irix65.raw.overlay" >/dev/null 2>&1; then
 	echo "$inst/irix65.raw.overlay is in use by another emulator" >&2
 	exit 1

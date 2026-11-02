@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-The QEMU guest agent for IRIX 6.5, over a port of the vioser virtio-serial driver (sibling checkout `../virtio`) under the IRIS emulator (`../iris`, branch `feature/virtio-serial-close-drain`, which is `feature/virtio-serial-guest-device-412469` plus the fix `--close-only` tests). Ported from `https://git.stei.gr/macos/qemu-guest-agent`, whose `core/` is nearly unchanged. `README.md` covers status, behaviour and the host's configuration.
+The QEMU guest agent for IRIX 6.5, over a port of the vioser virtio-serial driver (sibling checkout `../virtio`) under the IRIS emulator (`../iris`, branch `feature/virtio-serial-combined`: the virtio-serial device, the fix `--close-only` tests, and overlay locking). Ported from `https://git.stei.gr/macos/qemu-guest-agent`, whose `core/` is nearly unchanged. `README.md` covers status, behaviour and the host's configuration.
 
 ## Commands
 
@@ -32,7 +32,7 @@ A change to how the agent waits on the port needs a run on both `VIRTIO_SLOT=exp
 
 Writes go to `irix65.raw.overlay` beside the instance's image, never to the image. vioser and the agent are installed in that overlay, so deleting it after a crash removes them too: reinstall with `smake install` in `../virtio/driver` and here. Power off with `guest-shutdown` or `shutdown -p -g0 -y`; a killed guest leaves XFS dirty.
 
-**Never run two emulators on one overlay.** Doing so on 2026-11-01 ruined the root filesystem (`xlog_bread`, then `vfs_mountroot: no root found`). iris locks an overlay only with `feature/overlay-lock`, which the branch above does not include, so both repositories' `boot-ip28.sh` also refuse when `lsof` shows the overlay open. Do not test whether a guest has gone with `pgrep -x iris`, since the binary can have another name: `lsof` on the overlay is what counts.
+**Never run two emulators on one overlay.** Doing so on 2026-11-01 ruined the root filesystem (`xlog_bread`, then `vfs_mountroot: no root found`). iris now refuses a locked overlay itself, and both repositories' `boot-ip28.sh` also refuse when `lsof` shows it open, for an older iris. Do not test whether a guest has gone with `pgrep -x iris`, since the binary can have another name: `lsof` on the overlay is what counts.
 
 ## Architecture
 

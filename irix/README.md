@@ -80,7 +80,7 @@ With no `--tty` the agent looks for `/hw/virtio-ports/org.qemu.guest_agent.0`, t
   tries it every 200 ms; a host that comes back is served at once, with no partial line left
   over from the last connection.
 - A host may send requests and hang up without waiting: they are all served, and the replies
-  dropped. This needs IRIS's `feature/virtio-serial-close-drain`; before it, the end of what the
+  dropped. This needs IRIS's `feature/virtio-serial-combined`; before it, the end of what the
   host sent was lost.
 - If the port goes away (a read error) it reopens it every 2 s, and never exits for this.
 - After an open, input up to the first newline or `0xFF` is discarded: it may be a stale tail.
