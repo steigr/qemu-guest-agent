@@ -43,7 +43,7 @@ Writes go to `irix65.raw.overlay` beside the instance's image, never to the imag
 
 A command runs to completion inside the loop, so one that blocks stops the agent answering. Anything slow has to go through a poller, as `guest-exec` does.
 
-Differences from the blueprint that are on purpose: no vsock (IRIX has no driver for it), no UART polling (that was for a Tiger bug), and no CI or packaging yet.
+Differences from the blueprint that are on purpose: no vsock (IRIX has no driver for it), no UART polling (that was for a Tiger bug), and an inst package rather than the blueprint's. `tools/irix-package.sh` lists the package's files again in its idb, so a file added to `--install` has to go there too.
 
 ## Non-obvious constraints
 

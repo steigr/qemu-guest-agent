@@ -12,4 +12,7 @@ int qga_daemonize(const char *pidfile);
 int qga_install(void);
 int qga_uninstall(void);
 
+/* The rc script --install writes, for a package to carry. */
+void qga_print_rc_script(void);
+
 #endif

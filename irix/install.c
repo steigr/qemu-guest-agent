@@ -139,6 +139,11 @@ static const char init_script[] =
     "esac\n"
     "exit 0\n";
 
+void qga_print_rc_script(void)
+{
+    fputs(init_script, stdout);
+}
+
 int qga_install(void)
 {
     if (geteuid() != 0) {
