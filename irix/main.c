@@ -58,7 +58,7 @@ static void usage(void)
          "                        [--log-stream auto|off] [--log-source FILE]\n"
          "                        [--daemon [--pidfile FILE]]\n"
          "                        [--verbose] [--strict-exec] [--self-test] [--version]\n"
-         "       qemu-guest-agent --install | --upgrade | --uninstall\n"
+         "       qemu-guest-agent --install | --upgrade | --uninstall | --print-rc-script\n"
          "  --tty PATH   port or serial node to serve (default: auto = /hw/virtio-ports/\n"
          "               org.qemu.guest_agent.0, or org.iris.agent.0)\n"
          "               '-' serves stdin/stdout, for testing\n"
@@ -102,6 +102,9 @@ int main(int argc, char **argv)
             return qga_install();
         } else if (strcmp(argv[k], "--uninstall") == 0) {
             return qga_uninstall();
+        } else if (strcmp(argv[k], "--print-rc-script") == 0) {
+            qga_print_rc_script();
+            return 0;
         } else if (strcmp(argv[k], "--verbose") == 0) {
             qga_verbose = 1;
         } else if (strcmp(argv[k], "--strict-exec") == 0) {

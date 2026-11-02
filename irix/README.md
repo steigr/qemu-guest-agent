@@ -137,6 +137,24 @@ smake test       # the self-test and the stdin/stdout framing test
 
 ## Installing
 
+[`.forgejo/workflows/package.yml`](.forgejo/workflows/package.yml) builds, self-tests and packages
+the agent in an emulated Indigo2 on a push to `main` that touches the code, and publishes it to the
+`irix` organisation as the generic package
+[`qemu_guest_agent`](https://git.stei.gr/irix/-/packages/generic/qemu_guest_agent/latest), under its
+version and `latest`. It uses the organisation secret `PACKAGES_TOKEN`, as `irix/openssl` does.
+`vioser` is not in the package, and has to be installed from [its repository](https://git.stei.gr/irix/virtio).
+
+```sh
+inst -a -f qemu_guest_agent-0.1.0.tardist -I qemu_guest_agent   # installs and starts it
+inst -a -R qemu_guest_agent                                     # stops and removes it
+```
+
+inst compares versions, so a build reaches a machine that has the package only if `QGA_VERSION` in
+`core/dispatch.h` went up. A rebuild of the same version replaces the published file. An upgrade
+keeps `chkconfig qemu-guest-agent off`, and then does not restart the agent.
+
+From a source tree:
+
 ```sh
 smake install                               # or: qemu-guest-agent --install, as root
 /etc/init.d/qemu-guest-agent start

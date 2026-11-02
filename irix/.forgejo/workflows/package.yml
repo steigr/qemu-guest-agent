@@ -1,0 +1,67 @@
+name: qemu-guest-agent package
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "*.c"
+      - "*.h"
+      - Makefile
+      - "core/**"
+      - "commands/**"
+      - "transport/**"
+      - tests/stdio.sh
+      - "tools/**"
+      - ".forgejo/workflows/**"
+
+# One guest console: never run two of these at once.
+concurrency:
+  group: irix-guest
+  cancel-in-progress: false
+
+jobs:
+  package:
+    runs-on: irix
+    timeout-minutes: 60
+    steps:
+      - name: Fetch this repository
+        env:
+          # This repository is private. The token stays out of .git/config and the command line.
+          JOB_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          rm -rf self out
+          GIT_TERMINAL_PROMPT=0 git -c credential.helper= \
+            -c credential.helper='!f() { echo username=git; echo "password=$JOB_TOKEN"; }; f' \
+            clone --depth 1 --branch "${{ github.ref_name }}" "${{ github.server_url }}/${{ github.repository }}.git" self
+
+      - name: Log in to the guest console
+        run: |
+          # After a pod restart the console is at a login prompt; irix-sh needs a shell.
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            iris-ci login && exit 0
+            sleep 30
+          done
+          echo "the guest did not come up"; exit 1
+
+      - name: Build and package (guest)
+        shell: irix-sh {0}
+        run: |
+          art=`pwd`/out
+          cd self && sh tools/irix-package.sh $art
+
+      - name: Install and test the package (guest)
+        shell: irix-sh {0}
+        run: |
+          sh self/tools/irix-pkg-test.sh `pwd`/out/qemu_guest_agent-*.tardist
+
+      - name: Publish the package to Forgejo
+        # PACKAGES_TOKEN is an organisation secret: a token of a user who may write the
+        # organisation's packages (the job token cannot).
+        env:
+          PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
+        run: |
+          set -eu
+          ver=$(sed -n 's/.*QGA_VERSION "\(.*\)".*/\1/p' self/core/dispatch.h)
+          sh self/tools/publish-package.sh qemu_guest_agent "$ver" "out/qemu_guest_agent-$ver.tardist"
