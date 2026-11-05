@@ -39,7 +39,10 @@
 #include <sys/socket.h>
 #include <sys/socketvar.h>
 #include <sys/sysctl.h>
+#include <sys/ioctl.h>
+#include <sys/sockio.h>
 #include <net/if.h>
+#include <net/if_dl.h>
 #include <net/route.h>
 #include <netinet/in.h>
 #include <netinet/in_systm.h>
@@ -63,6 +66,75 @@ static const char *const tcp_states[] = {
     "FIN_WAIT_1", "CLOSING", "LAST_ACK", "FIN_WAIT_2", "TIME_WAIT"
 };
 
+/* inet_ntop's form of an IPv6 address: the longest run of two or more zero groups, the first of
+ * equals, becomes "::". 10.0's and 10.1's libc have no inet_ntop: the agent built there failed to
+ * link (bootstrap 2026-11-05). */
+static void ntop6(char *out, const struct in6_addr *a)
+{
+    unsigned g[8];
+    int i, best = -1, bestlen = 1, run = -1, runlen = 0;
+
+    for (i = 0; i < 8; i++)
+        g[i] = ((unsigned)a->s6_addr[2 * i] << 8) | a->s6_addr[2 * i + 1];
+    for (i = 0; i < 8; i++) {
+        if (g[i] == 0) {
+            if (run < 0)
+                run = i, runlen = 0;
+            if (++runlen > bestlen)
+                best = run, bestlen = runlen;
+        } else
+            run = -1;
+    }
+    *out = '\0';
+    for (i = 0; i < 8; i++) {
+        if (i == best) {
+            strcat(out, "::");
+            i += bestlen - 1;
+            continue;
+        }
+        if (i && i != best + bestlen)
+            strcat(out, ":");
+        /* An IPv4-mapped or -compatible tail is dotted, as inet_ntop writes it. */
+        if (i == 6 && best == 0 && (bestlen == 6 || (bestlen == 5 && g[5] == 0xffff))) {
+            sprintf(out + strlen(out), "%u.%u.%u.%u", a->s6_addr[12], a->s6_addr[13],
+                    a->s6_addr[14], a->s6_addr[15]);
+            break;
+        }
+        sprintf(out + strlen(out), "%x", g[i]);
+    }
+}
+
+/* The name of the interface with this index, from SIOCGIFCONF's link-layer entries: 10.0 and 10.1
+ * have no if_indextoname. */
+static int ifname_of(unsigned index, char *name)
+{
+    char buf[8192], *p;
+    struct ifconf ifc;
+    int s = socket(AF_INET, SOCK_DGRAM, 0), found = 0;
+
+    if (s < 0)
+        return 0;
+    ifc.ifc_len = sizeof buf;
+    ifc.ifc_buf = buf;
+    if (ioctl(s, SIOCGIFCONF, &ifc) == 0) {
+        for (p = buf; p < buf + ifc.ifc_len && !found;) {
+            struct ifreq *r = (struct ifreq *)p;
+            size_t len = r->ifr_addr.sa_len > sizeof r->ifr_addr ? r->ifr_addr.sa_len
+                                                                  : sizeof r->ifr_addr;
+
+            if (r->ifr_addr.sa_family == AF_LINK &&
+                ((struct sockaddr_dl *)&r->ifr_addr)->sdl_index == index) {
+                memcpy(name, r->ifr_name, IFNAMSIZ);
+                name[IFNAMSIZ - 1] = '\0';
+                found = 1;
+            }
+            p += sizeof r->ifr_name + len;
+        }
+    }
+    close(s);
+    return found;
+}
+
 /* The address alone, "*" for none. */
 static void host_of(char *host, const struct inpcb *inp, int local)
 {
@@ -77,16 +149,15 @@ static void host_of(char *host, const struct inpcb *inp, int local)
 
         if (!IN6_IS_ADDR_UNSPECIFIED(&a)) {
             unsigned scope = 0;
-            char ifname[IF_NAMESIZE];
+            char ifname[IFNAMSIZ];
 
             /* The kernel keeps a link-local address's scope in its second 16 bits. */
             if (IN6_IS_ADDR_LINKLOCAL(&a)) {
                 scope = ((unsigned)a.s6_addr[2] << 8) | a.s6_addr[3];
                 a.s6_addr[2] = a.s6_addr[3] = 0;
             }
-            if (!inet_ntop(AF_INET6, &a, host, 64))
-                strcpy(host, "?");
-            if (scope && if_indextoname(scope, ifname)) {
+            ntop6(host, &a);
+            if (scope && ifname_of(scope, ifname)) {
                 strcat(host, "%");
                 strcat(host, ifname);
             }
@@ -96,7 +167,7 @@ static void host_of(char *host, const struct inpcb *inp, int local)
 
 static void put_endpoint(char *out, const struct inpcb *inp, int local)
 {
-    char host[64 + IF_NAMESIZE + 2];
+    char host[64 + IFNAMSIZ + 2];
     unsigned port = ntohs(local ? inp->inp_lport : inp->inp_fport);
 
     host_of(host, inp, local);
@@ -201,7 +272,7 @@ static int native_table(sbuf *b, int inet6)
 static void add_listener(void *ctx, const struct inpcb *inp, const struct xsocket *so, int state)
 {
     json *list = (json *)ctx, *o;
-    char host[64 + IF_NAMESIZE + 2];
+    char host[64 + IFNAMSIZ + 2];
 
     (void)so;
     if (state >= 0 ? state != TCPS_LISTEN : inp->inp_fport != 0)
