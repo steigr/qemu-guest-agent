@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/wait.h>
+#include <unistd.h>
 
 /* 64, mav2287/mac-guest-agent's table size, which internal/controllers/guestagent's MaxStrays (24
  * commands abandoned unfinished before timer polls are refused) was sized against. */
@@ -196,7 +197,7 @@ static int cmd_exec(const json *args, json **ret, char *err, size_t errlen)
     const json *jarg = json_obj_get(args, "arg");
     const json *jenv = json_obj_get(args, "env");
     int capture = 0, k, in_p[2], out_p[2], err_p[2], st_p[2];
-    char **argv, **envp = NULL, ebuf[16];
+    char **argv, **envp = NULL, *script = NULL, ebuf[16];
     proc *p;
     pid_t pid;
     ssize_t n;
@@ -226,11 +227,26 @@ static int cmd_exec(const json *args, json **ret, char *err, size_t errlen)
     }
 
     /* argv[0] is path; the protocol's "arg" list supplies argv[1..]. A missing /usr/bin/stat
-     * (10.0/10.1) is replaced by this binary's own stat applet. */
+     * (10.0/10.1) is replaced by this binary's own stat applet, and netstat's socket table, on its
+     * own or in a shell's script, by its netstat applet (commands/netstat.c). A self that has gone
+     * is left out of it: a shell would run on without its netstat and report no listeners. */
     {
         size_t na = jarg ? jarg->n : 0, i, front = 1;
-        int applet = strcmp(path, "/usr/bin/stat") == 0 && access(path, X_OK) != 0 && qga_self_path[0];
+        const char *applet = NULL;
+        int cheap_netstat = qga_netstat_native() && qga_self_path[0] && access(qga_self_path, X_OK) == 0;
 
+        if (strcmp(path, "/usr/bin/stat") == 0 && access(path, X_OK) != 0 && qga_self_path[0])
+            applet = "stat";
+        else if (cheap_netstat && strcmp(path, "/usr/sbin/netstat") == 0 && na == 3) {
+            char *a[3];
+
+            for (i = 0; i < 3; i++)
+                a[i] = jarg->items[i]->s;
+            if (qga_netstat_args_match(3, a))
+                applet = "netstat";
+        } else if (cheap_netstat && strcmp(path, "/bin/sh") == 0 && na == 2 &&
+                   strcmp(jarg->items[0]->s, "-c") == 0)
+            script = qga_netstat_rewrite(jarg->items[1]->s, qga_self_path);
         if (applet) {
             front = 3;
             path = qga_self_path;
@@ -239,10 +255,12 @@ static int cmd_exec(const json *args, json **ret, char *err, size_t errlen)
         argv[0] = (char *)path;
         if (applet) {
             argv[1] = "--applet";
-            argv[2] = "stat";
+            argv[2] = (char *)applet;
         }
         for (i = 0; i < na; i++)
             argv[i + front] = jarg->items[i]->s;
+        if (script)
+            argv[na + front - 1] = script;
         argv[na + front] = NULL;
     }
     if (jenv)
@@ -251,6 +269,7 @@ static int cmd_exec(const json *args, json **ret, char *err, size_t errlen)
     if (pipe(in_p) < 0 || pipe(out_p) < 0 || pipe(err_p) < 0 || pipe(st_p) < 0) {
         free(argv);
         free(envp);
+        free(script);
         sb_free(&p->in);
         return qga_seterr(err, errlen, "pipe failed: %s", strerror(errno));
     }
@@ -264,6 +283,7 @@ static int cmd_exec(const json *args, json **ret, char *err, size_t errlen)
         }
         free(argv);
         free(envp);
+        free(script);
         sb_free(&p->in);
         return qga_seterr(err, errlen, "fork failed: %s", strerror(e));
     }
@@ -291,6 +311,7 @@ static int cmd_exec(const json *args, json **ret, char *err, size_t errlen)
     close(st_p[1]);
     free(argv);
     free(envp);
+    free(script);
 
     /* The child reports exec failure through st_p; EOF means exec succeeded. */
     n = read(st_p[0], ebuf, sizeof ebuf - 1);

@@ -397,6 +397,11 @@ static int cmd_network_get_interfaces(const json *args, json **ret, char *err, s
     return 0;
 }
 
+int qga_network_interfaces(json **ret, char *err, size_t errlen)
+{
+    return cmd_network_get_interfaces(NULL, ret, err, errlen);
+}
+
 static int cmd_get_users(const json *args, json **ret, char *err, size_t errlen)
 {
     struct utmp ut;

@@ -27,3 +27,16 @@ set -- $gnu; [ "$1" = 5 ] && [ "$2" = 81a4 ] || { echo "FAIL stat -c output: $gn
 if "$agent" --applet stat -f "%z" $tmp.missing 2>/dev/null; then echo "FAIL stat missing"; exit 1; fi
 rm -f $f
 echo "stat applet ok"
+
+# netstat applet: without a native table (or on a host) it is the real netstat; on PowerPC it must
+# read the same listeners.
+for f in inet inet6; do
+    "$agent" --applet netstat -an -f $f 2>/dev/null | grep LISTEN > $tmp.got
+    /usr/sbin/netstat -an -f $f 2>/dev/null | grep LISTEN > $tmp.want
+    if ! cmp -s $tmp.got $tmp.want; then
+        echo "FAIL netstat applet -f $f"
+        cat $tmp.got $tmp.want
+        exit 1
+    fi
+done
+echo "netstat applet ok"

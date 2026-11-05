@@ -23,7 +23,7 @@ LDFLAGS   += $(ARCH_FLAGS) $(FRAMEWORKS)
 
 SRCS = main.c selftest.c \
        core/util.c core/json.c core/base64.c core/dispatch.c \
-       commands/protocol.c commands/file.c commands/exec.c commands/system.c commands/hw.c commands/freeze.c commands/ssh.c commands/user.c commands/stat.c \
+       commands/protocol.c commands/file.c commands/exec.c commands/system.c commands/hw.c commands/freeze.c commands/ssh.c commands/user.c commands/stat.c commands/netstat.c \
        install.c transport/tty.c transport/serve.c transport/vsock.c transport/logstream.c
 OBJS = $(SRCS:.c=.o)
 
