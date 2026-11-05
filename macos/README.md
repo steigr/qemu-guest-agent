@@ -138,7 +138,8 @@ on port 7700 when the guest has a vsock device (`VirtioVsock.kext` loaded; the d
 case the kext loads later; `--vsock PORT` asks for a port and logs every failure; `--vsock off`;
 `--tty off` serves vsock alone. Both channels are served from one loop and share the commands'
 state (open files, exec'd children, the freeze); vsock handles are not file descriptors, so while
-vsock is up `select()` waits 20 ms and the handles are polled after it. One connection at a time: a
+vsock is up `select()` waits and the handles are polled after it: 20 ms after a request or a connection, doubling
+with each empty wait up to 500 ms, which is how long the first request of a burst may wait. The virtio console is not affected. One connection at a time: a
 new one replaces the old, which is what a host that reconnects needs. The host connects to the
 guest's CID, port 7700, with `AF_VSOCK`.
 
