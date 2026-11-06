@@ -23,6 +23,8 @@ concurrency:
 jobs:
   package:
     runs-on: irix
+    env:
+      IRIX_TIMEOUT: 7200
     timeout-minutes: 60
     steps:
       - name: Fetch this repository
@@ -36,11 +38,16 @@ jobs:
             -c credential.helper='!f() { echo username=git; echo "password=$JOB_TOKEN"; }; f' \
             clone --depth 1 --branch "${{ github.ref_name }}" "${{ github.server_url }}/${{ github.repository }}.git" self
 
-      - name: Log in to the guest console
+      - name: Wait for the guest
         run: |
-          # After a pod restart the console is at a login prompt; irix-sh needs a shell.
+          # Steps run over ssh (irix-sh) when the runner has the guest's key; else the console
+          # needs a login first (after a pod restart it sits at a login prompt).
           for i in 1 2 3 4 5 6 7 8 9 10; do
-            iris-ci login && exit 0
+            if [ -r "${IRIS_SSH_DIR:-/run/iris/ssh}/id_ed25519" ]; then
+              irix-ssh true && exit 0
+            else
+              iris-ci login && exit 0
+            fi
             sleep 30
           done
           echo "the guest did not come up"; exit 1
