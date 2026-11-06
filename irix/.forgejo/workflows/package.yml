@@ -20,6 +20,9 @@ concurrency:
   group: irix-guest
   cancel-in-progress: false
 
+# For the ID token the verfüg.bar publish step authenticates with.
+enable-openid-connect: true
+
 jobs:
   package:
     runs-on: irix
@@ -72,3 +75,14 @@ jobs:
           set -eu
           ver=$(sed -n 's/.*QGA_VERSION "\(.*\)".*/\1/p' self/core/dispatch.h)
           sh self/tools/publish-package.sh qemu_guest_agent "$ver" "out/qemu_guest_agent-$ver.tardist"
+
+      - name: Publish the package to verfüg.bar
+        # irix.xn--verfg-nva.bar: the appcast-publisher stores it in the landing pages' layout, without
+        # an appcast. The job's ID token (enable-openid-connect) is the authorization: the publisher's
+        # policy for this repository, ref and workflow decides what it may publish.
+        env:
+          APPCAST: "false"
+        run: |
+          set -eu
+          ver=$(sed -n 's/.*QGA_VERSION "\(.*\)".*/\1/p' self/core/dispatch.h)
+          sh self/.forgejo/ci/publisher-client.sh qemu_guest_agent "$ver" "$ver" "out/qemu_guest_agent-$ver.tardist"
