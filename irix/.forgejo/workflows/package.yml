@@ -39,7 +39,7 @@ jobs:
           rm -rf self out
           GIT_TERMINAL_PROMPT=0 git -c credential.helper= \
             -c credential.helper='!f() { echo username=git; echo "password=$JOB_TOKEN"; }; f' \
-            clone --depth 1 --branch "${{ github.ref_name }}" "${{ github.server_url }}/${{ github.repository }}.git" self
+            clone --branch "${{ github.ref_name }}" "${{ github.server_url }}/${{ github.repository }}.git" self
 
       - name: Wait for the guest
         run: |
@@ -79,10 +79,16 @@ jobs:
       - name: Publish the package to verfüg.bar
         # irix.xn--verfg-nva.bar: the appcast-publisher stores it in the landing pages' layout, without
         # an appcast. The job's ID token (enable-openid-connect) is the authorization: the publisher's
-        # policy for this repository, ref and workflow decides what it may publish.
+        # policy for this repository, ref and workflow decides what it may publish. The changelog
+        # (.forgejo/ci/changelog.sh) is the published one with an entry for this build on top.
         env:
           APPCAST: "false"
         run: |
           set -eu
           ver=$(sed -n 's/.*QGA_VERSION "\(.*\)".*/\1/p' self/core/dispatch.h)
-          sh self/.forgejo/ci/publisher-client.sh qemu_guest_agent "$ver" "$ver" "out/qemu_guest_agent-$ver.tardist"
+          if sh self/.forgejo/ci/changelog.sh qemu_guest_agent "$ver" self >qemu_guest_agent-CHANGELOG.md; then
+            CHANGELOG=qemu_guest_agent-CHANGELOG.md sh self/.forgejo/ci/publisher-client.sh qemu_guest_agent "$ver" "$ver" "out/qemu_guest_agent-$ver.tardist"
+          else
+            echo "changelog: none for qemu_guest_agent $ver, the published one stays"
+            sh self/.forgejo/ci/publisher-client.sh qemu_guest_agent "$ver" "$ver" "out/qemu_guest_agent-$ver.tardist"
+          fi
