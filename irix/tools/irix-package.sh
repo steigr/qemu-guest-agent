@@ -15,7 +15,10 @@ tmp=/var/tmp/irix-package-$$
 trap 'cd /; rm -rf $tmp' 0
 
 smake clean || exit 1
-smake || exit 1
+# One compile per CPU (hinv's count): the Tezro has four, the Indigo2 one.
+ncpu=`hinv -c processor 2> /dev/null | sed -n 's/^\([0-9][0-9]*\) .* Processors*$/\1/p'`
+case "$ncpu" in ''|*[!0-9]*|0) ncpu=1 ;; esac
+smake -J $ncpu || exit 1
 smake test || exit 1
 
 mkdir -p $tmp/root/usr/local/libexec $tmp/root/etc/init.d $tmp/root/etc/config $tmp/out || exit 1

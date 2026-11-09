@@ -2,6 +2,11 @@ name: qemu-guest-agent package
 
 on:
   workflow_dispatch:
+    inputs:
+      runner:
+        description: "Runner label: irix = either machine, iris-ip28 or iris-tezro = that one"
+        required: false
+        default: irix
   push:
     branches: [main]
     paths:
@@ -25,7 +30,7 @@ enable-openid-connect: true
 
 jobs:
   package:
-    runs-on: irix
+    runs-on: ${{ github.event.inputs.runner || 'irix' }}
     env:
       IRIX_TIMEOUT: 7200
     timeout-minutes: 60
