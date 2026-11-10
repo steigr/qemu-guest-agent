@@ -33,15 +33,34 @@ in its platform's guest, checks the package there, and publishes it twice:
 
 - to this organisation's generic packages, as `<platform>_qemu_guest_agent`
   ([list](https://git.stei.gr/virtualization/-/packages)), under its version and `latest`;
-- to the verfuegbar publisher in the home cluster (namespace `verfuegbar`), which serves it at
+- to the verfuegbar publisher, which serves it at
   `https://updates.xn--verfg-nva.bar/<platform>_qemu_guest_agent/`; the IRIX package is listed on
   [irix.verfüg.bar](https://irix.xn--verfg-nva.bar).
 
-All tokens are the job's ID token, so the workflows need no secret. The registry accepts it through
-an Authorized Integration whose audience is the repository variable `AUD`. The macOS build also
-reads `macos/virtio_vsock` of virtio-drivers, whose libvsock it compiles in, through a second
-Authorized Integration with the audience `AUD_SOURCES`. The publisher accepts it through its policy
-for this repository and each workflow.
+All tokens are the job's ID token. The registry accepts it through an Authorized Integration whose
+audience is the repository variable `AUD`. The macOS build also reads `macos/virtio_vsock` of
+virtio-drivers, whose libvsock it compiles in, through a second Authorized Integration with the
+audience `AUD_SOURCES`. The publisher accepts it through its policy for this repository and each
+workflow.
+
+Nothing about the infrastructure is in this repository. The workflows take it from the repository's
+Actions variables and secrets:
+
+| Name | Kind | Used by | What |
+| --- | --- | --- | --- |
+| `AUD` | variable | both | audience of the package-upload integration |
+| `AUD_SOURCES` | variable | macos | audience of the integration that reads virtio-drivers |
+| `PUBLISHER_URL` | secret | both | the verfuegbar publisher's service |
+| `PUBLISHER_AUDIENCE` | variable | both | the audience the publisher accepts |
+| `UPDATES_URL` | variable | irix | where the publisher serves packages (the published changelog) |
+| `IRIS_SSH_DIR` | variable | irix | where the runner keeps the IRIX guest's ssh key |
+| `GUEST_SSH` | variable | macos | `user@host` the runner reaches the PowerPC guest as |
+| `SHARE_DIR` | variable | macos | the share on the runner |
+| `GUEST_SHARE` | variable | macos | the same share in the guest |
+| `GUEST_PASSWORD` | secret | macos | the guest account's password, for `sudo` (mkbom runs as root) |
+
+The scripts take the same names from the environment and stop when one is missing, rather than
+falling back to a default.
 
 ## History
 

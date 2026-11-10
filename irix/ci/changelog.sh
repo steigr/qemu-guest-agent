@@ -10,7 +10,7 @@
 # shallow clone), and links the commit it is built from. When the published changelog has an entry for <version>
 # already, it is written as it is.
 #
-#   UPDATES_URL  where the bucket is served (default https://updates.xn--verfg-nva.bar)
+#   UPDATES_URL  where the bucket is served, from the Actions variable of that name (required)
 #   CHANGELOG_PATHS  space-separated paths the listed commits must touch (default the whole checkout)
 #
 # When the published changelog can't be read, it fails and writes nothing: the release is then published without a
@@ -21,8 +21,8 @@ version=$2
 checkout=$3
 upstream=${4:-}
 notes=${5:-}
-base=${UPDATES_URL:-https://updates.xn--verfg-nva.bar}
-commits=${GITHUB_SERVER_URL:-https://git.stei.gr}/${GITHUB_REPOSITORY:?}/commit
+base=${UPDATES_URL:?UPDATES_URL (where the published packages are served) is not set}
+commits=${GITHUB_SERVER_URL:?}/${GITHUB_REPOSITORY:?}/commit
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Vendored from git.stei.gr/verfuegbar/publisher (scripts/publisher-client.sh).
+# Vendored from verfuegbar/publisher (scripts/publisher-client.sh).
 # Publishes a release through the appcast-publisher, from a Forgejo Actions job:
 #
 #   publisher-client.sh <app> <version> <release> <archive> [<asset>...]
@@ -16,8 +16,8 @@
 #   MINIMUM_SYSTEM_VERSION  sparkle:minimumSystemVersion
 #   APPCAST                 "false" for an app Sparkle does not update (an IRIX inst package): only the files are
 #                           published, with no appcast item and no signature
-#   PUBLISHER_URL           the service (default http://publisher.invalid)
-#   PUBLISHER_AUDIENCE      the audience it accepts (default publisher)
+#   PUBLISHER_URL           the service, from the runner's Actions secret of that name (required)
+#   PUBLISHER_AUDIENCE      the audience it accepts, from the Actions variable of that name (required)
 #
 # A release whose version is already in the appcast counts as published, so a re-run passes.
 set -eu
@@ -26,8 +26,8 @@ version=$2
 release=$3
 archive=$4
 shift 4
-url=${PUBLISHER_URL:-http://publisher.invalid}
-audience=${PUBLISHER_AUDIENCE:-publisher}
+url=${PUBLISHER_URL:?PUBLISHER_URL (the publisher service) is not set}
+audience=${PUBLISHER_AUDIENCE:?PUBLISHER_AUDIENCE (the audience of the publisher) is not set}
 
 : "${ACTIONS_ID_TOKEN_REQUEST_URL:?the workflow needs enable-openid-connect: true}"
 : "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:?the workflow needs enable-openid-connect: true}"

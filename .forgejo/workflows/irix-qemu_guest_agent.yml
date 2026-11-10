@@ -1,9 +1,14 @@
 # irix/qemu-guest-agent: on the irix runner, the IRIX guest builds and self-tests the agent, makes its inst package
 # with gendist, installs it with inst, checks the installed agent and removes it again. The runner then publishes it
 # twice: as the generic package irix_qemu_guest_agent of this organisation (under its version and latest), and to the
-# verfuegbar publisher (irix.verfüg.bar). Both authenticate with the job's ID token, so nothing secret is configured:
-# the registry through the Authorized Integration whose audience is the repository variable AUD (write:package), the
+# verfuegbar publisher (irix.verfüg.bar). Both authenticate with the job's ID token, so no token is configured: the
+# registry through the Authorized Integration whose audience is the repository variable AUD (write:package), the
 # publisher through its policy for this repository and workflow.
+#
+# Where things are comes from Actions variables and secrets, so nothing about the infrastructure is in this
+# repository: secrets.PUBLISHER_URL (the publisher's service), vars.PUBLISHER_AUDIENCE (the audience it accepts),
+# vars.UPDATES_URL (where it serves the packages, for the changelog) and vars.IRIS_SSH_DIR (where the runner keeps
+# the guest's ssh key; without the key the steps go through the console).
 #
 # The version is QGA_VERSION of irix/core/dispatch.h; inst sees 0.1.0 as 100, so a build reaches a machine that has
 # the package only when it went up.
@@ -13,7 +18,7 @@ on:
   workflow_dispatch:
     inputs:
       runner:
-        description: "Runner label: irix = either machine, iris-ip28 or iris-tezro = that one"
+        description: "Runner label: irix = any IRIX runner, or the label of one machine"
         required: false
         default: irix
   push:
@@ -60,11 +65,13 @@ jobs:
           [ -s version.txt ]
 
       - name: Wait for the guest
+        env:
+          IRIS_SSH_DIR: ${{ vars.IRIS_SSH_DIR }}
         run: |
           # Steps run over ssh (irix-sh) when the runner has the guest's key; else the console
           # needs a login first (after a pod restart it sits at a login prompt).
           for i in 1 2 3 4 5 6 7 8 9 10; do
-            if [ -r "${IRIS_SSH_DIR:-/run/iris/ssh}/id_ed25519" ]; then
+            if [ -n "$IRIS_SSH_DIR" ] && [ -r "$IRIS_SSH_DIR/id_ed25519" ]; then
               irix-ssh true && exit 0
             else
               iris-ci login && exit 0
@@ -102,6 +109,9 @@ jobs:
         # changelog (irix/ci/changelog.sh) is the published one with an entry for this build on top.
         env:
           APPCAST: "false"
+          PUBLISHER_URL: ${{ secrets.PUBLISHER_URL }}
+          PUBLISHER_AUDIENCE: ${{ vars.PUBLISHER_AUDIENCE }}
+          UPDATES_URL: ${{ vars.UPDATES_URL }}
         run: |
           set -eu
           ver=$(cat version.txt)

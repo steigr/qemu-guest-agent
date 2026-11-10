@@ -3,12 +3,20 @@
 # this organisation's generic package registry (PACKAGE in macos/ci/component.sh, as <QGA_VERSION>.<run number> and
 # latest), and to the verfuegbar publisher (updates.verfüg.bar/<PACKAGE>/), which keeps no appcast for it.
 #
-# The runner is forgejo-runner/git-stei-gr-macos-panther: a host runner with ssh to the guest and the guest's disk
-# shared at /share. The agent compiles in libvsock from virtualization/virtio-drivers (macos/virtio_vsock), which the
-# job's own token cannot read. Every token is the job's ID token, so nothing secret is configured:
-#   - the repository variable AUD_SOURCES is the audience of the Authorized Integration that reads virtio-drivers
-#     (read:repository, that one repository);
-#   - the repository variable AUD the audience of the one that uploads packages (write:package);
+# The runner is a host runner with ssh to a PowerPC guest and a share both see. Where they are comes from Actions
+# variables and secrets, so nothing about the infrastructure is in this repository:
+#   vars.GUEST_SSH            user@host the runner reaches the guest as, with its own key
+#   vars.SHARE_DIR            the share on the runner
+#   vars.GUEST_SHARE          the same share in the guest
+#   secrets.GUEST_PASSWORD    the guest account's password, for sudo (mkbom runs as root)
+#   secrets.PUBLISHER_URL     the verfuegbar publisher's service
+#   vars.PUBLISHER_AUDIENCE   the audience the publisher accepts
+#
+# The agent compiles in libvsock from virtualization/virtio-drivers (macos/virtio_vsock), which the job's own token
+# cannot read. Every token is the job's ID token, so no token is configured:
+#   - vars.AUD_SOURCES is the audience of the Authorized Integration that reads virtio-drivers (read:repository, that
+#     one repository);
+#   - vars.AUD the audience of the one that uploads packages (write:package);
 #   - the publisher authorizes through its policy for this repository and workflow.
 name: macos/qemu-guest-agent
 on:
@@ -19,7 +27,7 @@ on:
 
 enable-openid-connect: true
 
-# One Panther guest: never build two components in it at once.
+# One PowerPC guest: never build two components in it at once.
 concurrency:
   group: macos-panther
   cancel-in-progress: false
@@ -28,6 +36,10 @@ jobs:
   build:
     runs-on: macosx-ppc
     timeout-minutes: 120
+    env:
+      GUEST_SSH: ${{ vars.GUEST_SSH }}
+      SHARE_DIR: ${{ vars.SHARE_DIR }}
+      GUEST_SHARE: ${{ vars.GUEST_SHARE }}
     steps:
       - name: Clone
         env:
@@ -64,6 +76,8 @@ jobs:
           ls -R stage-* | head -40
 
       - name: Package
+        env:
+          GUEST_PASSWORD: ${{ secrets.GUEST_PASSWORD }}
         run: |
           set -eu
           . src/macos/ci/component.sh
@@ -82,11 +96,11 @@ jobs:
       - name: Check the packages in the guest
         run: |
           job=check-$$
-          mkdir -p /share/$job && chmod 777 /share/$job
-          cp dist/*.pkg.tar.gz src/macos/ci/check-pkg.sh src/macos/ci/component.sh /share/$job/
-          chmod 644 /share/$job/*
+          mkdir -p "$SHARE_DIR/$job" && chmod 777 "$SHARE_DIR/$job"
+          cp dist/*.pkg.tar.gz src/macos/ci/check-pkg.sh src/macos/ci/component.sh "$SHARE_DIR/$job/"
+          chmod 644 "$SHARE_DIR/$job"/*
           ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o LogLevel=ERROR \
-            $GUEST_SSH "sh -c 'sh /Volumes/share/$job/check-pkg.sh /Volumes/share/$job 2>&1; rc=\$?; rm -rf /Volumes/share/$job; exit \$rc'"
+            "$GUEST_SSH" "sh -c 'sh $GUEST_SHARE/$job/check-pkg.sh $GUEST_SHARE/$job 2>&1; rc=\$?; rm -rf $GUEST_SHARE/$job; exit \$rc'"
 
       - name: Publish to the package registry
         env:
@@ -105,6 +119,8 @@ jobs:
       - name: Publish to verfüg.bar
         env:
           APPCAST: "false"
+          PUBLISHER_URL: ${{ secrets.PUBLISHER_URL }}
+          PUBLISHER_AUDIENCE: ${{ vars.PUBLISHER_AUDIENCE }}
         run: |
           set -eu
           . src/macos/ci/component.sh

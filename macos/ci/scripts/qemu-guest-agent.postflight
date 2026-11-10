@@ -3,7 +3,7 @@
 # (--upgrade), so that text lives in one place, install.c.
 [ "$3" = "/" ] || exit 0
 # Two agents on the one channel fight, and a guest with this agent has no other: the supervisor's
-# Perl agent goes, its item and its script (docs/guest-addons-plan.md's "Decisions"). It was set
+# Perl agent goes, its item and its script. It was set
 # aside in /var/backups until 2026-10-05.
 rm -rf /Library/StartupItems/MacGuestAgent /usr/local/libexec/mac-guest-agent.pl
 /usr/local/libexec/qemu-guest-agent --upgrade

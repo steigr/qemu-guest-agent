@@ -1,9 +1,9 @@
 # qemu-guest-agent for Mac OS X
 
 Native QEMU Guest Agent (QGA protocol) for Mac OS X 10.0 - 10.5 on PPC, speaking over the
-`/dev/cu.virtio-N` node exposed by `drivers/ppc/virtioconsole`, and for the Intel releases 10.4 -
-10.15 over the pci-serial port the orchestrator gives them (see "Intel"). Design, command scope, per-OS
-matrix and milestones: docs/ppc-macosx-qga-implementation-plan.md (the repository's).
+`/dev/cu.virtio-N` node exposed by
+[virtio_console](https://git.stei.gr/virtualization/virtio-drivers/src/branch/main/macos/virtio_console),
+and for the Intel releases 10.4 - 10.15 over the pci-serial port the host gives them (see "Intel").
 
 ## Status
 
@@ -26,8 +26,8 @@ Implemented (all commands of plan 5.1-5.3 that are feasible), 115 self-test chec
 Deliberately not registered (plan 5.3): `guest-suspend-*`, `guest-fstrim`, `guest-set-vcpus`,
 `guest-set-memory-blocks`.
 
-Verified on 10.0.4 (guest, GCC 2.95.2), 10.1.5 (guest, GCC 2.95.2) and 10.2.8 (guest,
-GCC 3.1): self-test (115 checks, no source change needed between releases), the installed StartupItem as live
+Verified on 10.0.4 (GCC 2.95.2), 10.1.5 (GCC 2.95.2) and 10.2.8
+(GCC 3.1): self-test (115 checks, no source change needed between releases), the installed StartupItem as live
 agent, the host's `macos exec` / `macos cp` (100 KB binary round trip), every read-only command by hand, and a
 throwaway NetInfo user for ssh keys (dedupe, remove, reset, owner/mode), passwords (stored hash verified with
 `crypt()`) and freeze. The `dscl` (10.3+) and launchd (10.4+) paths are untested. None of 10.0, 10.1 or 10.2 has
@@ -69,18 +69,18 @@ stages as `/usr/local/bin/qemu-guest-agent` and launchd runs as `qemu-guest-agen
   and reopened after ten minutes without a request: mav2287/mac-guest-agent measured that Tiger's
   serial driver can stop waking `select()` with bytes queued, and loses input queued past ~1.3 KB
   before it is read. The virtio console is not polled.
-- `build-intel.sh` does all of it against a running `guest` in the cluster: the Xcode
-  packages from the DVD image (verified by SHA-256, installed one by one), the source, the build,
-  both slices' self-tests, and the binary back with a `BUILD-INFO` in `guest/dist/`.
-  `make guest-agent-image` at the repository's root publishes it as the chart's `guestAgent.image`.
+- `build-intel.sh` does all of it against a running Snow Leopard guest in a Kubernetes pod (the
+  script's header names the environment it needs): the Xcode packages from the DVD image
+  (verified by SHA-256, installed one by one), the source, the build, both slices' self-tests,
+  and the binary back with a `BUILD-INFO`.
 
 Verified: 121 self-test checks on 10.6.8 (both slices, `arch -i386` / `arch -x86_64`) and on
-10.4.11 (the x86_64 slice, which is the one Tiger chose). In the extended gauntlet of 2026-10-10
-to 2026-10-12 (docs/gauntlet/2026-10-12-extended.md), 0.2.3 was the agent of every release from
+10.4.11 (the x86_64 slice, which is the one Tiger chose). In an extended test run of 2026-10-10
+to 2026-10-12, 0.2.3 was the agent of every release from
 10.0 to 10.15, each installed from nothing: on the virtio console on PowerPC, on pci-serial on Intel,
-through the install, the update restarts and the checks. Two faults remain open: TODO.md's "An
-Intel guest's agent sometimes half-stalls after a boot" and TODO.md's "Leopard's first boot after
-10.5.8 hangs every command run through /bin/sh".
+through the install, the update restarts and the checks. Two faults remain open: an
+Intel guest's agent sometimes half-stalls after a boot, and Leopard's first boot after
+10.5.8 hangs every command run through /bin/sh.
 
 ## Layout
 
@@ -128,16 +128,14 @@ vsock is up `select()` waits 20 ms and the handles are polled after it. One conn
 new one replaces the old, which is what a host that reconnects needs. The host connects to the
 guest's CID, port 7700, with `AF_VSOCK`.
 
-Proven on all four PowerPC releases (2026-10-04, the cluster pods' vhost-vsock, each agent built by
-the ladder with that release's tools, VirtioVsock loaded from `/tmp`, the agent run with `--tty off`
-beside the pod's own): 10.0.4 (`guest`, CID 303), 10.1.5 (`guest`, 301), 10.2.8 (`guest`,
-302) and 10.3.9 (`guest`, 304) each answered sync, osinfo and exec on port 7700, read 1 MiB of
+Proven on all four PowerPC releases (2026-10-04, QEMU's vhost-vsock, each agent built
+with that release's tools, VirtioVsock loaded from `/tmp`, the agent run with `--tty off`
+beside the installed one): 10.0.4, 10.1.5, 10.2.8 and 10.3.9 each answered sync, osinfo and exec on port 7700, read 1 MiB of
 `/mach_kernel` at 948-1119 KB/s, and on port 7701 gave the log's history on connect and then a line
-`logger` wrote 10 s before. Earlier, on 10.2.8 (`guest`, CID 302), the agent built there with GCC 3.1: from the
-pod, `guest-sync-delimited`, `guest-ping`, `guest-get-osinfo`, `guest-exec` with captured output,
+`logger` wrote 10 s before. Earlier, on 10.2.8, the agent built there with GCC 3.1: from the
+host, `guest-sync-delimited`, `guest-ping`, `guest-get-osinfo`, `guest-exec` with captured output,
 1 MiB of `/mach_kernel` through `guest-file-read` at 940 KB/s (the Perl agent over its channel: 25
-KB/s), a reconnect, and a second connection replacing the first. With no vsock device (the local
-ladder, 10.2.8) the agent serves the virtio console as before: `ladder.sh 10.2 virtio-test` passed.
+KB/s), a reconnect, and a second connection replacing the first. With no vsock device (10.2.8) the agent serves the virtio console as before.
 
 ## Log stream
 
@@ -148,7 +146,7 @@ agent's, so the host gives the agent's console the lower PCI slot). A host that 
 first gets the last 64 KB, then live lines; the log channels never wait (a console nobody reads on
 the host would stall the agent): what would block is dropped. The file is polled once a second and
 followed across newsyslog's rotation. `--log-stream off`; `--log-source FILE` for another file.
-Proven over vsock on 10.0.4 to 10.3.9 (above); over the second console by the ladder's virtio-test.
+Proven over vsock on 10.0.4 to 10.3.9 (above); over the second console by a virtio console test.
 
 ## Running and installing
 
@@ -159,8 +157,8 @@ Proven over vsock on 10.0.4 to 10.3.9 (above); over the second console by the la
 ```
 
 The installer warns when the Perl agent's StartupItem (`MacGuestAgent`) is present: two agents on the
-one channel would fight, so remove one. The package's postflight removes it, and the supervisor's
-install with the add-ons never puts it there (docs/guest-addons-plan.md in the repository root). The StartupItem script avoids `RunService` (missing in 10.1's
+one channel would fight, so remove one. The package's postflight removes it, and an install
+with the guest add-ons never puts it there. The StartupItem script avoids `RunService` (missing in 10.1's
 `rc.common`). Not implemented: a config file.
 
 ## Releases

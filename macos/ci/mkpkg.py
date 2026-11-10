@@ -157,7 +157,7 @@ def build(manifest_path, src, outdir):
     if via:
         # No mkbom -i here (Linux has no mkbom at all; 10.3's takes a directory only): the command is
         # given the finished archive and the BOM to write, and makes it where a mkbom is -- in a
-        # PowerPC guest, as root, from the archive unpacked into a directory (guest/ladder/guest-mkbom.sh).
+        # PowerPC guest, as root, from the archive unpacked into a directory (macos/ci/guest-mkbom.sh).
         subprocess.run([via, os.path.join(root, "Contents", "Archive.pax.gz"), bom], check=True)
     else:
         with tempfile.NamedTemporaryFile("w", suffix=".txt") as lst:

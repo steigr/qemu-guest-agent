@@ -1,30 +1,36 @@
 #!/bin/bash
-# build-intel.sh: build the Intel releases' agent (`make intel`) inside a Snow Leopard guest in the
-# cluster, and bring it back with a BUILD-INFO to guest/dist/qemu-guest-agent-intel/.
+# build-intel.sh: build the Intel releases' agent (`make intel`) inside a Snow Leopard guest that
+# runs in a Kubernetes pod, and bring it back with a BUILD-INFO to $OUT (default: ../../dist/qemu-guest-agent-intel, guest/dist in that layout).
 #
-# usage: build-intel.sh [ISO]
+# usage: ISO=... KUBE_CONTEXT=... NAMESPACE=... RELEASE=... build-intel.sh
 #
-# ISO is the Snow Leopard retail DVD (default: 10.6.8, 10K549, under
-# the ISO folder); its "Optional Installs" carries Xcode 3.2.6, whose packages
-# are installed in the guest one by one -- the tools, both GCCs, the 10.4u and 10.5 SDKs -- unless
-# the guest has them already. Attached read-only with hdiutil, so this runs on a Mac.
+# The script needs the following environment, and has no defaults for it:
+#   ISO           the Snow Leopard retail DVD (10.6.8, 10K549); its "Optional Installs" carries Xcode
+#                 3.2.6, whose packages are installed in the guest one by one -- the tools, both GCCs,
+#                 the 10.4u and 10.5 SDKs -- unless the guest has them already. Attached read-only with
+#                 hdiutil, so this runs on a Mac.
+#   KUBE_CONTEXT  the kubectl context of the cluster the guest runs in
+#   NAMESPACE     its namespace
+#   RELEASE       the guest's StatefulSet; its pod RELEASE-0 must be running with its agent connected.
 #
-# The guest is RELEASE's pod (default guest) in NAMESPACE, which must be running with its
-# agent connected. Files go in over HTTP and not through the agent: the pod serves them on its
+# The vsock source is expected at ../drivers/virtiovsock, so lay this folder out as the CI build does
+# (macos/ci/component.sh: guest/software/qemu-guest-agent beside guest/drivers/virtiovsock).
+#
+# Files go in over HTTP and not through the agent: the pod serves them on its
 # loopback, which passt gives the guest at its default gateway, and the agent's own serial channel
 # is a UART that takes kilobytes, not hundreds of megabytes. The binary comes back as base64 on the
 # agent's stdout and is checked against the guest's own SHA-256 of it.
 set -euo pipefail
 
-ISO=${1:-$ISO}
-RELEASE=${RELEASE:-guest}
-KUBE_CONTEXT=${KUBE_CONTEXT:-example.invalid}
-NAMESPACE=${NAMESPACE:-macos}
+ISO=${ISO:-${1:?set ISO to the Snow Leopard retail DVD image}}
+: "${KUBE_CONTEXT:?set KUBE_CONTEXT to the kubectl context of the cluster}"
+: "${NAMESPACE:?set NAMESPACE to the namespace of the guest}"
+: "${RELEASE:?set RELEASE to the StatefulSet of the guest}"
 PORT=8099
 PACKAGES="DeveloperToolsSystemSupport VersionedDeveloperToolsSystemSupport DeveloperToolsCLI DevSDK gcc4.0 gcc4.2 MacOSX10.4.Universal MacOSX10.5"
 
 here=$(cd "$(dirname "$0")" && pwd)
-out=$here/../../dist/qemu-guest-agent-intel
+out=${OUT:-$here/../../dist/qemu-guest-agent-intel}
 pod() { kubectl --context "$KUBE_CONTEXT" -n "$NAMESPACE" exec -i "$RELEASE-0" -c macos -- "$@"; }
 guest() { pod macos exec "$@"; }
 

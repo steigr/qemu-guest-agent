@@ -14,7 +14,7 @@ smake test               # --self-test, then tests/stdio.sh
 smake install            # the binary, rc script and chkconfig flag; the guest's disk keeps them
 ```
 
-End to end, from the host, against the installed system in `$IRIX_INSTANCE`. Build `iris` as `irix/CLAUDE.md` of virtualization/virtio-drivers says. Run these from `irix/`, which `boot-ip28.sh` shares as `/share`.
+End to end, from the host, against an installed system, the folder `IRIX_INSTANCE` names. Build `iris` as `irix/CLAUDE.md` of virtualization/virtio-drivers says. Run these from `irix/`, which `boot-ip28.sh` shares as `/share`.
 
 ```bash
 IRIS="$TGT/release/iris" VIRTIO_SLOT=exp0 tests/iris/boot-ip28.sh "$WORK"   # blocks; run in the background
