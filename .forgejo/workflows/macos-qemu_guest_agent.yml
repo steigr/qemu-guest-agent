@@ -1,0 +1,114 @@
+# macos/qemu-guest-agent: builds the agent for PowerPC Mac OS X in the Panther guest beside the macosx-ppc runner,
+# packages it as an Installer package, checks the package in the guest, and publishes package and stage twice: to
+# this organisation's generic package registry (PACKAGE in macos/ci/component.sh, as <QGA_VERSION>.<run number> and
+# latest), and to the verfuegbar publisher (updates.verfüg.bar/<PACKAGE>/), which keeps no appcast for it.
+#
+# The runner is forgejo-runner/git-stei-gr-macos-panther: a host runner with ssh to the guest and the guest's disk
+# shared at /share. The agent compiles in libvsock from virtualization/virtio-drivers (macos/virtio_vsock), which the
+# job's own token cannot read. Every token is the job's ID token, so nothing secret is configured:
+#   - the repository variable AUD_SOURCES is the audience of the Authorized Integration that reads virtio-drivers
+#     (read:repository, that one repository);
+#   - the repository variable AUD the audience of the one that uploads packages (write:package);
+#   - the publisher authorizes through its policy for this repository and workflow.
+name: macos/qemu-guest-agent
+on:
+  push:
+    branches: [main]
+    paths: ["macos/**", "ci/**", ".forgejo/workflows/macos-qemu_guest_agent.yml"]
+  workflow_dispatch:
+
+enable-openid-connect: true
+
+# One Panther guest: never build two components in it at once.
+concurrency:
+  group: macos-panther
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macosx-ppc
+    timeout-minutes: 120
+    steps:
+      - name: Clone
+        env:
+          AUD_SOURCES: ${{ vars.AUD_SOURCES }}
+        run: |
+          set -eu
+          rm -rf src vsock
+          git -c http.extraHeader="Authorization: bearer ${{ forgejo.token }}" \
+            clone --depth 1 "${{ forgejo.server_url }}/${{ forgejo.repository }}.git" src
+          git -C src fetch --quiet --depth 1 origin "${{ forgejo.sha }}" && git -C src checkout --quiet FETCH_HEAD
+          . src/macos/ci/component.sh
+          jwt=$(curl --fail -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=$AUD_SOURCES" | jq -r .value)
+          echo "::add-mask::$jwt"
+          git -c http.extraHeader="Authorization: bearer $jwt" \
+            clone --quiet --depth 1 "${{ forgejo.server_url }}/${{ forgejo.repository_owner }}/$VSOCK_REPO.git" vsock
+          sed -n 's/.*QGA_VERSION "\(.*\)".*/\1/p' src/macos/core/dispatch.h > version.txt
+          [ -s version.txt ]
+          echo "$PACKAGE $(cat version.txt), commit $(git -C src rev-parse --short HEAD), $VSOCK_REPO $(git -C vsock rev-parse --short HEAD)"
+
+      - name: Build in the Panther guest
+        run: |
+          set -eu
+          . src/macos/ci/component.sh
+          for variant in $VARIANTS; do
+            echo "::group::$variant"
+            rm -rf payload
+            mkdir -p "payload/$(dirname "$LAYOUT")" "payload/$(dirname "$VSOCK_LAYOUT")" payload/dl payload/deps
+            cp -R src/macos "payload/$LAYOUT"
+            cp -R "vsock/$VSOCK_PATH" "payload/$VSOCK_LAYOUT"
+            LAYOUT="$LAYOUT" sh src/macos/ci/runner-app-build.sh "$variant" payload "stage-$variant"
+            echo "::endgroup::"
+          done
+          ls -R stage-* | head -40
+
+      - name: Package
+        run: |
+          set -eu
+          . src/macos/ci/component.sh
+          VERSION=$(cat version.txt)
+          # Beside package.json: its scripts are relative to it.
+          sed "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" src/macos/ci/package.json > src/macos/ci/package.versioned.json
+          rm -rf dist; mkdir -p dist
+          for variant in $VARIANTS; do
+            rm -rf "pkg-$variant"
+            MKPKG_BOM_VIA="$PWD/src/macos/ci/guest-mkbom.sh" python3 src/macos/ci/mkpkg.py src/macos/ci/package.versioned.json --src "stage-$variant" --out "pkg-$variant"
+            tar -C "pkg-$variant" -czf "dist/$PKG-$variant-$VERSION.pkg.tar.gz" "$PKG.pkg"
+            tar -C "stage-$variant" -czf "dist/$PKG-$variant-$VERSION.stage.tar.gz" .
+          done
+          ls -l dist
+
+      - name: Check the packages in the guest
+        run: |
+          job=check-$$
+          mkdir -p /share/$job && chmod 777 /share/$job
+          cp dist/*.pkg.tar.gz src/macos/ci/check-pkg.sh src/macos/ci/component.sh /share/$job/
+          chmod 644 /share/$job/*
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o LogLevel=ERROR \
+            $GUEST_SSH "sh -c 'sh /Volumes/share/$job/check-pkg.sh /Volumes/share/$job 2>&1; rc=\$?; rm -rf /Volumes/share/$job; exit \$rc'"
+
+      - name: Publish to the package registry
+        env:
+          AUD: ${{ vars.AUD }}
+        run: |
+          set -eu
+          . src/macos/ci/component.sh
+          version="$(cat version.txt).${{ forgejo.run_number }}"
+          PACKAGES_JWT=$(curl --fail -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=$AUD" | jq -r .value)
+          echo "::add-mask::$PACKAGES_JWT"
+          export PACKAGES_JWT
+          # The files carry QGA_VERSION; the registry's version adds the run number.
+          sh src/ci/publish-package.sh "$PACKAGE" "$version" dist/*
+
+      - name: Publish to verfüg.bar
+        env:
+          APPCAST: "false"
+        run: |
+          set -eu
+          . src/macos/ci/component.sh
+          version="$(cat version.txt).${{ forgejo.run_number }}"
+          set -- dist/*.pkg.tar.gz dist/*.stage.tar.gz
+          archive=$1; shift
+          sh src/ci/publisher-client.sh "$PACKAGE" "$version" "$version" "$archive" "$@"

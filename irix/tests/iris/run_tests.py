@@ -9,7 +9,7 @@ WORKDIR is boot-ip28.sh's work directory, which holds agent.sock and log.sock.
 The guest needs vioser loaded and the agent built (smake, in /share).
 --show prints every reply. --shutdown ends by powering the guest off through
 guest-shutdown.
-IRIS_SRC is an iris checkout, for tools/irix-sh.py (default ../iris).
+IRIS_SRC is an iris checkout, for tools/irix-sh.py (default: iris beside this repository).
 """
 import argparse
 import base64
@@ -23,7 +23,8 @@ import threading
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-IRIS_SRC = os.environ.get("IRIS_SRC", os.path.join(os.path.dirname(ROOT), "iris"))
+# ROOT is irix/ of the repository; iris is checked out beside the repository.
+IRIS_SRC = os.environ.get("IRIS_SRC", os.path.join(os.path.dirname(os.path.dirname(ROOT)), "iris"))
 IRIX_SH = os.path.join(IRIS_SRC, "tools", "irix-sh.py")
 AGENT = "/tmp/qemu-guest-agent.obj/qemu-guest-agent"
 PIDFILE = "/tmp/qga-test.pid"

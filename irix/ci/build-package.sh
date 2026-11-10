@@ -1,11 +1,16 @@
 #!/bin/sh
-# Run in the IRIX guest, from the repository: build and self-test the agent, then make its inst
-# package (gendist exists only there).
+# Run in the IRIX guest: build and self-test the agent in irix/, then make its inst package
+# (gendist exists only there).
 #
-#   tools/irix-package.sh <artifact-dir>
+#   irix/ci/build-package.sh <artifact-dir>
 #
-# Writes <artifact-dir>/qemu_guest_agent-<version>.tardist. inst versions are integers: 0.1.0 is 100.
+# Writes <artifact-dir>/qemu_guest_agent-<version>.tardist, with QGA_VERSION of core/dispatch.h as
+# <version>. inst versions are integers: 0.1.0 is 100.
 art=$1
+[ -n "$art" ] || { echo "usage: $0 <artifact-dir>"; exit 2; }
+mkdir -p $art || exit 1
+art=`cd $art && pwd`
+cd "`dirname "$0"`/.." || exit 1
 prod=qemu_guest_agent
 sub=$prod.sw.base
 bin=/tmp/qemu-guest-agent.obj/qemu-guest-agent
@@ -59,6 +64,5 @@ SPEC
 
 (cd $tmp && /usr/sbin/gendist -sbase root -idb $prod.idb -spec $prod.spec -dist out) || exit 1
 (cd $tmp/out && tar cf ../$prod-$ver.tardist *) || exit 1
-mkdir -p $art || exit 1
 cp $tmp/$prod-$ver.tardist $art/ || exit 1
 ls -l $art/$prod-$ver.tardist

@@ -2,7 +2,7 @@
 # Run in the IRIX guest: install the package with inst, check the installed agent, and remove it,
 # so that a shared build guest is left without an agent at boot.
 #
-#   tools/irix-pkg-test.sh <tardist>
+#   irix/ci/test-package.sh <tardist>
 tardist=$1
 prod=qemu_guest_agent
 bin=/usr/local/libexec/qemu-guest-agent

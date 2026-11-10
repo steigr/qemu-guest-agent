@@ -1,14 +1,16 @@
-# See openssl's component.sh. The agent's vsock transport includes ../../../drivers/virtiovsock/vsock.c, so the
-# virtiovsock repository is laid out beside this one as guest/drivers/virtiovsock (SRC_DEPS) and this repository as
-# guest/software/qemu-guest-agent (LAYOUT).
-KIND=app
+# What macos/ci builds for the agent: its installer package (PKG), the registry's package (PACKAGE), the variants and
+# what the check looks for. The version is QGA_VERSION of core/dispatch.h.
+#
+# The agent's vsock transport includes ../../../drivers/virtiovsock/vsock.c, the libvsock of
+# virtualization/virtio-drivers' macos/virtio_vsock, so the build lays macos/ out as guest/software/qemu-guest-agent
+# (LAYOUT) and that folder beside it as guest/drivers/virtiovsock (VSOCK_LAYOUT), the layout this agent was
+# written in.
 PKG=QemuGuestAgent
-PACKAGE=qemu-guest-agent
-VERSION=0.1
+PACKAGE=macos_qemu_guest_agent
 LAYOUT=guest/software/qemu-guest-agent
-SRC_DEPS="virtiovsock=guest/drivers/virtiovsock"
+VSOCK_REPO=virtio-drivers
+VSOCK_PATH=macos/virtio_vsock
+VSOCK_LAYOUT=guest/drivers/virtiovsock
 VARIANTS="gcc3-10.3"
-SOURCES=""
-DEPENDS=""
 STATIC=""
 CHECK_PATHS="./usr/local/libexec/qemu-guest-agent"

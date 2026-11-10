@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-The QEMU guest agent for IRIX 6.5, over a port of the vioser virtio-serial driver (sibling checkout `../virtio`) under the IRIS emulator (`../iris`, branch `feature/virtio-serial-combined`: the virtio-serial device, the fix `--close-only` tests, and overlay locking). Ported from `https://git.stei.gr/macos/qemu-guest-agent`, whose `core/` is nearly unchanged. `README.md` covers status, behaviour and the host's configuration.
+The QEMU guest agent for IRIX 6.5, over the virtio_serial driver (formerly vioser; `irix/virtio_serial` of virtualization/virtio-drivers) under the IRIS emulator (`../../iris`, beside this repository, branch `feature/virtio-serial-combined`: the virtio-serial device, the fix `--close-only` tests, and overlay locking). Ported from the Mac OS X agent in `../macos`, whose `core/` is nearly unchanged. `README.md` covers status, behaviour and the host's configuration.
 
 ## Commands
 
@@ -14,12 +14,12 @@ smake test               # --self-test, then tests/stdio.sh
 smake install            # the binary, rc script and chkconfig flag; the guest's disk keeps them
 ```
 
-End to end, from the host, against the installed system in `$IRIX_INSTANCE`. Build `iris` as `../virtio/CLAUDE.md` says.
+End to end, from the host, against the installed system in `$IRIX_INSTANCE`. Build `iris` as `irix/CLAUDE.md` of virtualization/virtio-drivers says. Run these from `irix/`, which `boot-ip28.sh` shares as `/share`.
 
 ```bash
 IRIS="$TGT/release/iris" VIRTIO_SLOT=exp0 tests/iris/boot-ip28.sh "$WORK"   # blocks; run in the background
-python3 ../iris/tools/irix-sh.py --port 12323 wait --timeout 480
-python3 ../iris/tools/irix-sh.py --port 12323 --timeout 300 run -k 'mount /share; cd /share && smake'
+python3 ../../iris/tools/irix-sh.py --port 12323 wait --timeout 480
+python3 ../../iris/tools/irix-sh.py --port 12323 --timeout 300 run -k 'mount /share; cd /share && smake'
 tests/iris/run_tests.py "$WORK"                                             # --show prints every reply
 tests/iris/run_tests.py "$WORK" --shutdown                                  # ends with guest-shutdown
 ```
@@ -30,7 +30,7 @@ tests/iris/run_tests.py "$WORK" --shutdown                                  # en
 
 A change to how the agent waits on the port needs a run on both `VIRTIO_SLOT=exp0` and `exp1`, which reach `select()` by different paths (interrupt and poll timer).
 
-Writes go to `irix65.raw.overlay` beside the instance's image, never to the image. vioser and the agent are installed in that overlay, so deleting it after a crash removes them too: reinstall with `smake install` in `../virtio/driver` and here. Power off with `guest-shutdown` or `shutdown -p -g0 -y`; a killed guest leaves XFS dirty.
+Writes go to `irix65.raw.overlay` beside the instance's image, never to the image. vioser and the agent are installed in that overlay, so deleting it after a crash removes them too: reinstall virtio_serial from virtio-drivers and the agent with `smake install` here. Power off with `guest-shutdown` or `shutdown -p -g0 -y`; a killed guest leaves XFS dirty.
 
 **Never run two emulators on one overlay.** Doing so on 2026-11-01 ruined the root filesystem (`xlog_bread`, then `vfs_mountroot: no root found`). iris now refuses a locked overlay itself, and both repositories' `boot-ip28.sh` also refuse when `lsof` shows it open, for an older iris. Do not test whether a guest has gone with `pgrep -x iris`, since the binary can have another name: `lsof` on the overlay is what counts.
 
@@ -43,7 +43,7 @@ Writes go to `irix65.raw.overlay` beside the instance's image, never to the imag
 
 A command runs to completion inside the loop, so one that blocks stops the agent answering. Anything slow has to go through a poller, as `guest-exec` does.
 
-Differences from the blueprint that are on purpose: no vsock (IRIX has no driver for it), no UART polling (that was for a Tiger bug), and an inst package rather than the blueprint's. `tools/irix-package.sh` lists the package's files again in its idb, so a file added to `--install` has to go there too.
+Differences from the blueprint that are on purpose: no vsock (IRIX has no driver for it), no UART polling (that was for a Tiger bug), and an inst package rather than the blueprint's. `ci/build-package.sh` lists the package's files again in its idb, so a file added to `--install` has to go there too.
 
 ## Non-obvious constraints
 

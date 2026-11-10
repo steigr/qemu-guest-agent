@@ -1,9 +1,9 @@
 # qemu-guest-agent for IRIX
 
-A native QEMU Guest Agent (QGA protocol) for IRIX 6.5, speaking over a port of
-[vioser](https://git.stei.gr/irix/virtio), the virtio-serial driver, under the
-[IRIS](https://git.stei.gr/irix/iris) emulator. It is a port of
-[the Mac OS X agent](https://git.stei.gr/macos/qemu-guest-agent).
+A native QEMU Guest Agent (QGA protocol) for IRIX 6.5, speaking over
+[virtio_serial](https://git.stei.gr/virtualization/virtio-drivers/src/branch/main/irix/virtio_serial)
+(formerly vioser), the virtio-serial driver, under the [IRIS](https://git.stei.gr/irix/iris) emulator.
+It is a port of [the Mac OS X agent](../macos).
 
 ## Status
 
@@ -137,12 +137,15 @@ smake test       # the self-test and the stdin/stdout framing test
 
 ## Installing
 
-[`.forgejo/workflows/package.yml`](.forgejo/workflows/package.yml) builds, self-tests and packages
-the agent in an emulated Indigo2 on a push to `main` that touches the code, and publishes it to the
-`irix` organisation as the generic package
-[`qemu_guest_agent`](https://git.stei.gr/irix/-/packages/generic/qemu_guest_agent/latest), under its
-version and `latest`. It uses the organisation secret `PACKAGES_TOKEN`, as `irix/openssl` does.
-`vioser` is not in the package, and has to be installed from [its repository](https://git.stei.gr/irix/virtio).
+[`irix-qemu_guest_agent.yml`](../.forgejo/workflows/irix-qemu_guest_agent.yml) builds, self-tests
+and packages the agent in an emulated IRIX machine on a push to `main` that touches `irix/`, installs
+the package, checks it and removes it again. It publishes it to the `virtualization` organisation as
+the generic package
+[`irix_qemu_guest_agent`](https://git.stei.gr/virtualization/-/packages/generic/irix_qemu_guest_agent/latest),
+under its version and `latest`, and to [irix.verfüg.bar](https://irix.xn--verfg-nva.bar). The inst
+product inside is still `qemu_guest_agent`. Up to 0.1.0 it was published from `irix/qemu-guest-agent`,
+as the `irix` organisation's `qemu_guest_agent`. `virtio_serial` is not in the package, and is
+installed from [its own package](https://git.stei.gr/virtualization/virtio-drivers).
 
 ```sh
 inst -a -f qemu_guest_agent-0.1.0.tardist -I qemu_guest_agent   # installs and starts it

@@ -115,7 +115,7 @@ and record the evidence here when that milestone is reached.
 ## vsock
 
 Besides the serial channel the agent listens on a vsock port, through `drivers/virtiovsock`'s
-libvsock, compiled in from there on every platform (since 0.3.0: on Intel it takes 10.5's
+libvsock (now [`macos/virtio_vsock`](https://git.stei.gr/virtualization/virtio-drivers/src/branch/main/macos/virtio_vsock) of virtio-drivers, laid out there by the build), compiled in from there on every platform (since 0.3.0: on Intel it takes 10.5's
 `IOConnectCall*Method` in the x86_64 slice and 10.0's calls in the i386 one; where there is no kext,
 every host among them, it says there is no device). On Intel the host dials vsock first and
 pci-serial after it, and the kext is put on the installed system by the installer. `--vsock auto`, the default, listens
@@ -162,6 +162,19 @@ The installer warns when the Perl agent's StartupItem (`MacGuestAgent`) is prese
 one channel would fight, so remove one. The package's postflight removes it, and the supervisor's
 install with the add-ons never puts it there (docs/guest-addons-plan.md in the repository root). The StartupItem script avoids `RunService` (missing in 10.1's
 `rc.common`). Not implemented: a config file.
+
+## Releases
+
+[`macos-qemu_guest_agent.yml`](../.forgejo/workflows/macos-qemu_guest_agent.yml) builds the agent
+for PowerPC (`gcc3-10.3`, [ci/component.sh](ci/component.sh)) in the Panther guest of the
+`macosx-ppc` runner on a push to `main` that touches `macos/`, packages it as `QemuGuestAgent.pkg`,
+checks the package in the guest, and publishes package and stage to the `virtualization`
+organisation as the generic package
+[`macos_qemu_guest_agent`](https://git.stei.gr/virtualization/-/packages/generic/macos_qemu_guest_agent/latest)
+(`QGA_VERSION.<run number>` and `latest`), and to `updates.verfüg.bar/macos_qemu_guest_agent/`.
+The build lays `macos/` out as `guest/software/qemu-guest-agent` and virtio-drivers'
+`macos/virtio_vsock` as `guest/drivers/virtiovsock`, the layout `transport/vsock.c` includes
+libvsock from. The Intel binary is still built with `build-intel.sh`, in that layout.
 
 ## Source rules
 
