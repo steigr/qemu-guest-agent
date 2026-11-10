@@ -36,7 +36,7 @@ qemu-guest-agent: $(OBJS)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 # The Intel releases' one binary, i386 and x86_64, built on Snow Leopard with Xcode 3.2.6 from its
-# DVD and the 10.4 SDK it carries (guest/software/qemu-guest-agent/README.md's "Intel"). i386 runs
+# DVD and the 10.4 SDK it carries (README.md's "Intel"). i386 runs
 # on 10.4 to 10.14. x86_64 is for 10.15, which runs nothing else -- and for Tiger on a 64-bit CPU,
 # whose kernel picks the x86_64 slice of a universal binary over the i386 one
 # (mav2287/mac-guest-agent's issue #9). Tiger has an x86_64 libSystem from 10.4.7 but no x86_64
@@ -52,7 +52,7 @@ INTEL_CFLAGS     = $(STD) $(WARN) $(OPT) -mmacosx-version-min=10.4
 
 intel: build/intel/qemu-guest-agent
 
-build/intel/qemu-guest-agent: $(SRCS) $(wildcard */*.h *.h)
+build/intel/qemu-guest-agent: $(SRCS) $(wildcard */*/*.c */*/*.h */*.h *.h)
 	mkdir -p build/intel
 	$(INTEL_CC_I386) $(INTEL_CFLAGS) -arch i386 -isysroot $(INTEL_SDK_I386) \
 		-o build/intel/qemu-guest-agent-i386 $(SRCS) -framework IOKit -framework CoreFoundation

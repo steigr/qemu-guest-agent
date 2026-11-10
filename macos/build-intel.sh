@@ -1,6 +1,6 @@
 #!/bin/bash
 # build-intel.sh: build the Intel releases' agent (`make intel`) inside a Snow Leopard guest that
-# runs in a Kubernetes pod, and bring it back with a BUILD-INFO to $OUT (default: ../../dist/qemu-guest-agent-intel, guest/dist in that layout).
+# runs in a Kubernetes pod, and bring it back with a BUILD-INFO to $OUT (default: build/release).
 #
 # usage: ISO=... KUBE_CONTEXT=... NAMESPACE=... RELEASE=... build-intel.sh
 #
@@ -12,9 +12,6 @@
 #   KUBE_CONTEXT  the kubectl context of the cluster the guest runs in
 #   NAMESPACE     its namespace
 #   RELEASE       the guest's StatefulSet; its pod RELEASE-0 must be running with its agent connected.
-#
-# The vsock source is expected at ../drivers/virtiovsock, so lay this folder out as the CI build does
-# (macos/ci/component.sh: guest/software/qemu-guest-agent beside guest/drivers/virtiovsock).
 #
 # Files go in over HTTP and not through the agent: the pod serves them on its
 # loopback, which passt gives the guest at its default gateway, and the agent's own serial channel
@@ -30,7 +27,8 @@ PORT=8099
 PACKAGES="DeveloperToolsSystemSupport VersionedDeveloperToolsSystemSupport DeveloperToolsCLI DevSDK gcc4.0 gcc4.2 MacOSX10.4.Universal MacOSX10.5"
 
 here=$(cd "$(dirname "$0")" && pwd)
-out=${OUT:-$here/../../dist/qemu-guest-agent-intel}
+name=$(basename "$here")
+out=${OUT:-$here/build/release}
 pod() { kubectl --context "$KUBE_CONTEXT" -n "$NAMESPACE" exec -i "$RELEASE-0" -c macos -- "$@"; }
 guest() { pod macos exec "$@"; }
 
@@ -62,10 +60,9 @@ else
 	echo "toolchain: already installed in the guest" > "$work/toolchain"
 fi
 
-# The agent and libvsock, which it compiles in from the driver's directory, in their places under
-# guest/.
-COPYFILE_DISABLE=1 tar -C "$here/../.." --format ustar --no-mac-metadata --no-xattrs --exclude build \
-	-czf "$work/qga.tgz" software/qemu-guest-agent drivers/virtiovsock
+# The agent, with libvsock vendored in transport/libvsock.
+COPYFILE_DISABLE=1 tar -C "$here/.." --format ustar --no-mac-metadata --no-xattrs --exclude build \
+	-czf "$work/qga.tgz" "$name"
 pod sh -c 'cat > /share/build/qga.tgz' < "$work/qga.tgz"
 # Served from /share/build by a server this script started, which a nonce proves: another one on
 # the port -- an earlier one serving another directory -- would hand the guest stale files.
@@ -84,22 +81,22 @@ if curl -sfS -o SHA256SUMS \$url/SHA256SUMS; then
 	shasum -a 256 -c SHA256SUMS
 	for p in $PACKAGES; do installer -pkg \$p.pkg -target / | tail -1; done
 fi
-rm -rf software drivers && curl -sfS \$url/qga.tgz | tar -xzf -
-cd software/qemu-guest-agent && make intel
+rm -rf "$name" && curl -sfS \$url/qga.tgz | tar -xzf -
+cd "$name" && make intel
 for a in i386 x86_64; do arch -\$a build/intel/qemu-guest-agent --self-test | tail -1; done
 cp build/intel/qemu-guest-agent . && sh tests/stdio.sh ./qemu-guest-agent
 EOF
 
 mkdir -p "$out"
-guest /usr/bin/openssl base64 -in /tmp/qga-build/software/qemu-guest-agent/build/intel/qemu-guest-agent | base64 -d > "$out/qemu-guest-agent.new"
-want=$(guest /usr/bin/shasum -a 256 /tmp/qga-build/software/qemu-guest-agent/build/intel/qemu-guest-agent | awk '{ print $1 }')
+guest /usr/bin/openssl base64 -in /tmp/qga-build/$name/build/intel/qemu-guest-agent | base64 -d > "$out/qemu-guest-agent.new"
+want=$(guest /usr/bin/shasum -a 256 /tmp/qga-build/$name/build/intel/qemu-guest-agent | awk '{ print $1 }')
 got=$(shasum -a 256 "$out/qemu-guest-agent.new" | awk '{ print $1 }')
 [ "$want" = "$got" ] || { echo "the binary came back as $got, the guest has $want" >&2; exit 1; }
 mv "$out/qemu-guest-agent.new" "$out/qemu-guest-agent"
 chmod 755 "$out/qemu-guest-agent"
 {
 	echo "qemu-guest-agent $(sed -n 's/.*QGA_VERSION "\(.*\)"/\1/p' "$here/core/dispatch.h"), make intel"
-	echo "source: $(git -C "$here" rev-parse HEAD)$(git -C "$here" diff --quiet HEAD -- . ../../drivers/virtiovsock || echo ' (modified)')"
+	echo "source: $(git -C "$here" rev-parse HEAD)$(git -C "$here" diff --quiet HEAD -- . || echo ' (modified)')"
 	echo "built on: $RELEASE, $(guest /usr/bin/sw_vers -productVersion) $(guest /usr/bin/sw_vers -buildVersion)"
 	cat "$work/toolchain"
 	guest /bin/sh -c 'gcc-4.0 --version | head -1; gcc-4.2 --version | head -1'

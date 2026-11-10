@@ -3,9 +3,9 @@
 
 #include <errno.h>
 
-/* The library itself, from the driver's directory: one source for vsockcat and the agent. Its own
+/* The library itself, vendored from virtio-drivers' macos/virtio_vsock (libvsock/README.md). Its own
  * includes ("vsock.h", "VirtioVsockUser.h") resolve beside it. */
-#include "../../../drivers/virtiovsock/vsock.c"
+#include "libvsock/vsock.c"
 
 int qv_listen(unsigned int port)            { return vsock_listen(port, 1); }
 int qv_accept(int l)                        { return vsock_accept(l, 0, 0, 0, 1); }

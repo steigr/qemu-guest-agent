@@ -38,9 +38,7 @@ in its platform's guest, checks the package there, and publishes it twice:
   [irix.verfüg.bar](https://irix.xn--verfg-nva.bar).
 
 All tokens are the job's ID token. The registry accepts it through an Authorized Integration whose
-audience is the repository variable `AUD`. The macOS build also reads `macos/virtio_vsock` of
-virtio-drivers, whose libvsock it compiles in, through a second Authorized Integration with the
-audience `AUD_SOURCES`. The publisher accepts it through its policy for this repository and each
+audience is the repository variable `AUD`. The publisher accepts it through its policy for this repository and each
 workflow.
 
 Nothing about the infrastructure is in this repository. The workflows take it from the repository's
@@ -49,7 +47,6 @@ Actions variables and secrets:
 | Name | Kind | Used by | What |
 | --- | --- | --- | --- |
 | `AUD` | variable | both | audience of the package-upload integration |
-| `AUD_SOURCES` | variable | macos | audience of the integration that reads virtio-drivers |
 | `PUBLISHER_URL` | secret | both | the verfuegbar publisher's service |
 | `PUBLISHER_AUDIENCE` | variable | both | the audience the publisher accepts |
 | `UPDATES_URL` | variable | irix | where the publisher serves packages (the published changelog) |

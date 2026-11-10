@@ -12,12 +12,9 @@
 #   secrets.PUBLISHER_URL     the verfuegbar publisher's service
 #   vars.PUBLISHER_AUDIENCE   the audience the publisher accepts
 #
-# The agent compiles in libvsock from virtualization/virtio-drivers (macos/virtio_vsock), which the job's own token
-# cannot read. Every token is the job's ID token, so no token is configured:
-#   - vars.AUD_SOURCES is the audience of the Authorized Integration that reads virtio-drivers (read:repository, that
-#     one repository);
-#   - vars.AUD the audience of the one that uploads packages (write:package);
-#   - the publisher authorizes through its policy for this repository and workflow.
+# Every token is the job's ID token, so no token is configured: vars.AUD is the audience of the Authorized
+# Integration that uploads packages (write:package), and the publisher authorizes through its policy for this
+# repository and workflow. libvsock is vendored in macos/transport/libvsock.
 name: macos/qemu-guest-agent
 on:
   push:
@@ -42,23 +39,16 @@ jobs:
       GUEST_SHARE: ${{ vars.GUEST_SHARE }}
     steps:
       - name: Clone
-        env:
-          AUD_SOURCES: ${{ vars.AUD_SOURCES }}
         run: |
           set -eu
-          rm -rf src vsock
+          rm -rf src
           git -c http.extraHeader="Authorization: bearer ${{ forgejo.token }}" \
             clone --depth 1 "${{ forgejo.server_url }}/${{ forgejo.repository }}.git" src
           git -C src fetch --quiet --depth 1 origin "${{ forgejo.sha }}" && git -C src checkout --quiet FETCH_HEAD
           . src/macos/ci/component.sh
-          jwt=$(curl --fail -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=$AUD_SOURCES" | jq -r .value)
-          echo "::add-mask::$jwt"
-          git -c http.extraHeader="Authorization: bearer $jwt" \
-            clone --quiet --depth 1 "${{ forgejo.server_url }}/${{ forgejo.repository_owner }}/$VSOCK_REPO.git" vsock
           sed -n 's/.*QGA_VERSION "\(.*\)".*/\1/p' src/macos/core/dispatch.h > version.txt
           [ -s version.txt ]
-          echo "$PACKAGE $(cat version.txt), commit $(git -C src rev-parse --short HEAD), $VSOCK_REPO $(git -C vsock rev-parse --short HEAD)"
+          echo "$PACKAGE $(cat version.txt), commit $(git -C src rev-parse --short HEAD)"
 
       - name: Build in the Panther guest
         run: |
@@ -67,9 +57,8 @@ jobs:
           for variant in $VARIANTS; do
             echo "::group::$variant"
             rm -rf payload
-            mkdir -p "payload/$(dirname "$LAYOUT")" "payload/$(dirname "$VSOCK_LAYOUT")" payload/dl payload/deps
+            mkdir -p payload/dl payload/deps
             cp -R src/macos "payload/$LAYOUT"
-            cp -R "vsock/$VSOCK_PATH" "payload/$VSOCK_LAYOUT"
             LAYOUT="$LAYOUT" sh src/macos/ci/runner-app-build.sh "$variant" payload "stage-$variant"
             echo "::endgroup::"
           done

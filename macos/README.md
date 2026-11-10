@@ -114,8 +114,8 @@ and record the evidence here when that milestone is reached.
 
 ## vsock
 
-Besides the serial channel the agent listens on a vsock port, through `drivers/virtiovsock`'s
-libvsock (now [`macos/virtio_vsock`](https://git.stei.gr/virtualization/virtio-drivers/src/branch/main/macos/virtio_vsock) of virtio-drivers, laid out there by the build), compiled in from there on every platform (since 0.3.0: on Intel it takes 10.5's
+Besides the serial channel the agent listens on a vsock port, through VirtioVsock's libvsock
+(vendored in [`transport/libvsock`](transport/libvsock) from virtio-drivers' `macos/virtio_vsock`), compiled in from there on every platform (since 0.3.0: on Intel it takes 10.5's
 `IOConnectCall*Method` in the x86_64 slice and 10.0's calls in the i386 one; where there is no kext,
 every host among them, it says there is no device). On Intel the host dials vsock first and
 pci-serial after it, and the kext is put on the installed system by the installer. `--vsock auto`, the default, listens
@@ -170,9 +170,7 @@ checks the package in the guest, and publishes package and stage to the `virtual
 organisation as the generic package
 [`macos_qemu_guest_agent`](https://git.stei.gr/virtualization/-/packages/generic/macos_qemu_guest_agent/latest)
 (`QGA_VERSION.<run number>` and `latest`), and to `updates.verfüg.bar/macos_qemu_guest_agent/`.
-The build lays `macos/` out as `guest/software/qemu-guest-agent` and virtio-drivers'
-`macos/virtio_vsock` as `guest/drivers/virtiovsock`, the layout `transport/vsock.c` includes
-libvsock from. The Intel binary is still built with `build-intel.sh`, in that layout.
+The Intel binary is built with `build-intel.sh`, outside CI.
 
 ## Source rules
 

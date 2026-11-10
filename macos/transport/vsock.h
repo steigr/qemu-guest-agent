@@ -1,4 +1,4 @@
-/* vsock.h - the agent's view of libvsock (drivers/virtiovsock): stream sockets over
+/* vsock.h - the agent's view of libvsock (libvsock/, vendored): stream sockets over
  * VirtioVsock.kext. Handles are not file descriptors, so the serve loop polls them. Built in
  * everywhere: libvsock calls the kext's IOKit user client with 10.0's calls in a 32-bit process and
  * 10.5's in a 64-bit one, which a current SDK has too. Where there is no kext -- every host, and a
