@@ -1,0 +1,121 @@
+# Builds a guest application for PowerPC Mac OS X in the Panther guest beside the macosx-ppc runner, packages it as an
+# Installer package, checks the package in the guest, and uploads package and stage to this repository owner's generic
+# package registry, as <package>/<VERSION>.<run number>. What is built is ci/component.sh's and ci/build-guest.sh's; a
+# component that needs another (curl needs openssl) names it in DEPENDS and gets the other's newest stage from the
+# registry instead of building it again. Authentication is as in the kexts' release.yml: the job's own token clones, an ID
+# token from the Authorized Integration whose audience is this repository's Actions variable AUD uploads (and, for
+# a component with dependencies, reads). This file is guest/ci/app/release.yml of steigr/qemu-vm-container-macos-guest;
+# guest/ci/seed.sh puts it in each component's repository.
+name: release
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+enable-openid-connect: true
+
+jobs:
+  build:
+    runs-on: macosx-ppc
+    timeout-minutes: 300
+    steps:
+      - name: Fetch an ID token
+        id: jwt
+        env:
+          AUD: ${{ vars.AUD }}
+        run: |
+          jwt=$(curl --fail -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=$AUD" | jq -r .value)
+          echo "::add-mask::$jwt"
+          echo "jwt=$jwt" >> "$FORGEJO_OUTPUT"
+
+      - name: Clone
+        run: |
+          rm -rf src
+          git -c http.extraHeader="Authorization: bearer ${{ forgejo.token }}" \
+            clone --depth 1 "${{ forgejo.server_url }}/${{ forgejo.repository }}.git" src
+          . src/ci/component.sh
+          echo "$PACKAGE $VERSION, commit $(git -C src rev-parse --short HEAD)"
+
+      - name: Fetch sources and dependencies
+        env:
+          JWT: ${{ steps.jwt.outputs.jwt }}
+          FORGEJO_SERVER: ${{ forgejo.server_url }}
+          FORGEJO_OWNER: ${{ forgejo.repository_owner }}
+        run: |
+          . src/ci/component.sh
+          export SOURCES DEPENDS
+          rm -rf payload dl
+          mkdir -p dl payload/deps
+          sh src/ci/fetch-sources.sh dl
+          if [ -f src/ci/prepare.sh ]; then (cd src && DL="$PWD/../dl" sh ci/prepare.sh); fi
+          for variant in $VARIANTS; do
+            sh src/ci/fetch-deps.sh "$variant" "payload/deps-$variant"
+          done
+          [ -f dl/version.txt ] && cat dl/version.txt || true
+
+      - name: Build in the Panther guest
+        run: |
+          . src/ci/component.sh
+          [ ! -f dl/version.txt ] || VERSION=$(cat dl/version.txt)
+          for variant in $VARIANTS; do
+            echo "::group::$variant"
+            rm -rf "payload/${LAYOUT:-repo}" payload/dl payload/deps
+            mkdir -p "$(dirname "payload/${LAYOUT:-repo}")"
+            cp -R src "payload/${LAYOUT:-repo}"
+            rm -rf "payload/${LAYOUT:-repo}/.git"
+            for s in $SRC_DEPS; do
+              # "name=path": another repository's tree at <path> beside this one, for a build that includes its sources
+              n=${s%%=*}; pth=${s##*=}
+              rm -rf "payload/$pth"; mkdir -p "payload/$pth"
+              # the job's token reads only this repository: the ID token (read:repository on that one repository) reads the other
+              git -c http.extraHeader="Authorization: bearer ${{ steps.jwt.outputs.jwt }}" \
+                clone --depth 1 -q "${{ forgejo.server_url }}/${{ forgejo.repository_owner }}/$n.git" "payload/$pth"
+              rm -rf "payload/$pth/.git"
+            done
+            cp -R dl payload/dl
+            if [ -d "payload/deps-$variant" ]; then mv "payload/deps-$variant" payload/deps; else mkdir -p payload/deps; fi
+            LAYOUT="$LAYOUT" VERSION="$VERSION" sh src/ci/runner-app-build.sh "$variant" payload "stage-$variant"
+            echo "::endgroup::"
+          done
+          ls -R stage-* > ls.txt; head -40 ls.txt
+
+      - name: Package
+        run: |
+          . src/ci/component.sh
+          [ ! -f dl/version.txt ] || VERSION=$(cat dl/version.txt)
+          sed "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" src/ci/package.json > src/ci/package.versioned.json
+          mkdir -p dist
+          for variant in $VARIANTS; do
+            rm -rf "pkg-$variant"
+            MKPKG_BOM_VIA="$PWD/src/ci/guest-mkbom.sh" python3 src/ci/mkpkg.py src/ci/package.versioned.json --src "stage-$variant" --out "pkg-$variant"
+            tar -C "pkg-$variant" -czf "dist/$PKG-$variant-$VERSION.pkg.tar.gz" "$PKG.pkg"
+            tar -C "stage-$variant" -czf "dist/$PKG-$variant-$VERSION.stage.tar.gz" .
+          done
+          ls -l dist
+
+      - name: Check the packages in the guest
+        run: |
+          . src/ci/component.sh
+          job=check-$$
+          mkdir -p /share/$job && chmod 777 /share/$job
+          cp dist/*.pkg.tar.gz src/ci/check-pkg.sh src/ci/component.sh /share/$job/
+          chmod 644 /share/$job/*
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o LogLevel=ERROR \
+            $GUEST_SSH "sh -c 'sh /Volumes/share/$job/check-pkg.sh /Volumes/share/$job 2>&1; rc=\$?; rm -rf /Volumes/share/$job; exit \$rc'"
+
+      - name: Upload to the package registry
+        run: |
+          . src/ci/component.sh
+          [ ! -f dl/version.txt ] || VERSION=$(cat dl/version.txt)
+          version="$VERSION.${{ forgejo.run_number }}"
+          owner="${{ forgejo.repository_owner }}"
+          for f in dist/*; do
+            code=$(curl -sS -o resp.txt -w '%{http_code}' -X PUT \
+              -H "Authorization: bearer ${{ steps.jwt.outputs.jwt }}" \
+              --upload-file "$f" \
+              "${{ forgejo.server_url }}/api/packages/$owner/generic/$PACKAGE/$version/$(basename "$f")")
+            echo "$code $(basename "$f")"
+            [ "$code" = 201 ] || [ "$code" = 409 ] || { echo "Forgejo said:"; head -c 600 resp.txt; echo; exit 1; }
+          done
+          echo "uploaded as $PACKAGE $version: ${{ forgejo.server_url }}/$owner/-/packages/generic/$PACKAGE/$version"
