@@ -58,11 +58,3 @@ Actions variables and secrets:
 
 The scripts take the same names from the environment and stop when one is missing, rather than
 falling back to a default.
-
-## History
-
-The agents were separate repositories until 2026-11-10, imported here with their history:
-[irix/qemu-guest-agent](https://git.stei.gr/irix/qemu-guest-agent) and
-[macos/qemu-guest-agent](https://git.stei.gr/macos/qemu-guest-agent). They published as the `irix`
-organisation's `qemu_guest_agent` and the `macos` organisation's `qemu-guest-agent`. Those packages
-stay where they are, and new builds publish under the names above.
