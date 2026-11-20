@@ -11,7 +11,7 @@ drivers are in [virtio-drivers](https://git.stei.gr/virtualization/virtio-driver
 | Agent | Platform | Channel | Version | Package |
 | --- | --- | --- | --- | --- |
 | [irix](irix) | IRIX 6.5 | virtio-serial ([virtio_serial](https://git.stei.gr/virtualization/virtio-drivers/src/branch/main/irix/virtio_serial)) | 0.1.0 | `irix_qemu_guest_agent` (inst product `qemu_guest_agent`) |
-| [macos](macos) | Mac OS X 10.0 to 10.5 PowerPC, 10.4 to 10.15 Intel | virtio console or pci-serial, and vsock ([virtio_vsock](https://git.stei.gr/virtualization/virtio-drivers/src/branch/main/macos/virtio_vsock)) | 0.3.0 | `macos_qemu_guest_agent` |
+| [macos](macos) | Mac OS X 10.0 to 10.5 PowerPC, 10.4 to 10.15 Intel | virtio console or pci-serial, and vsock ([virtio_vsock](https://git.stei.gr/virtualization/virtio-drivers/src/branch/main/macos/virtio_vsock)) | 0.3.1 | `macos_qemu_guest_agent` |
 
 The version is `QGA_VERSION` in each agent's `core/dispatch.h`.
 

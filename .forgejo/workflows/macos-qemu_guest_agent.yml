@@ -105,15 +105,88 @@ jobs:
           # The files carry QGA_VERSION; the registry's version adds the run number.
           sh src/ci/publish-package.sh "$PACKAGE" "$version" dist/*
 
+  # The Intel releases' agent, on the runner beside the Snow Leopard guest (deploy/ci/git-stei-gr-macos-snowleopard.yaml
+  # in steigr/qemu-vm-container-macos-guest), whose Xcode 3.2.6 builds `make intel`: one binary, i386 and x86_64, for
+  # 10.4 to 10.15. After the PowerPC job, because that one replaces the package version and this one adds to it; then
+  # verfüg.bar, once, with every file of the version. The same variables as the PowerPC job: both runners reach their
+  # guest at the same address and share.
+  intel:
+    needs: build
+    runs-on: macosx-intel
+    timeout-minutes: 60
+    env:
+      GUEST_SSH: ${{ vars.GUEST_SSH }}
+      SHARE_DIR: ${{ vars.SHARE_DIR }}
+      GUEST_SHARE: ${{ vars.GUEST_SHARE }}
+    steps:
+      - name: Clone
+        run: |
+          set -eu
+          rm -rf src
+          git -c http.extraHeader="Authorization: bearer ${{ forgejo.token }}" \
+            clone --depth 1 "${{ forgejo.server_url }}/${{ forgejo.repository }}.git" src
+          git -C src fetch --quiet --depth 1 origin "${{ forgejo.sha }}" && git -C src checkout --quiet FETCH_HEAD
+          sed -n 's/.*QGA_VERSION "\(.*\)".*/\1/p' src/macos/core/dispatch.h > version.txt
+          [ -s version.txt ]
+
+      - name: Build in the Snow Leopard guest
+        run: |
+          set -eu
+          . src/macos/ci/component.sh
+          rm -rf payload stage-intel
+          mkdir -p payload/dl payload/deps
+          cp -R src/macos "payload/$LAYOUT"
+          LAYOUT="$LAYOUT" sh src/macos/ci/runner-app-build.sh intel payload stage-intel
+          { echo "qemu-guest-agent $(cat version.txt), make intel"
+            echo "source: ${{ forgejo.repository }} ${{ forgejo.sha }}"
+            cat stage-intel/BUILD-INFO; } > BUILD-INFO && mv BUILD-INFO stage-intel/BUILD-INFO
+          cat stage-intel/BUILD-INFO
+
+      - name: Package
+        run: |
+          set -eu
+          . src/macos/ci/component.sh
+          VERSION=$(cat version.txt)
+          rm -rf dist; mkdir -p dist
+          tar -C stage-intel -czf "dist/$PKG-intel-$VERSION.stage.tar.gz" .
+          ls -l dist
+
+      - name: Publish to the package registry, beside the PowerPC files
+        env:
+          AUD: ${{ vars.AUD }}
+          ADD: "1"
+        run: |
+          set -eu
+          . src/macos/ci/component.sh
+          version="$(cat version.txt).${{ forgejo.run_number }}"
+          PACKAGES_JWT=$(curl --fail -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=$AUD" | jq -r .value)
+          echo "::add-mask::$PACKAGES_JWT"
+          export PACKAGES_JWT
+          sh src/ci/publish-package.sh "$PACKAGE" "$version" dist/*
+
       - name: Publish to verfüg.bar
         env:
           APPCAST: "false"
+          AUD: ${{ vars.AUD }}
           PUBLISHER_URL: ${{ secrets.PUBLISHER_URL }}
           PUBLISHER_AUDIENCE: ${{ vars.PUBLISHER_AUDIENCE }}
         run: |
           set -eu
           . src/macos/ci/component.sh
-          version="$(cat version.txt).${{ forgejo.run_number }}"
+          VERSION=$(cat version.txt)
+          version="$VERSION.${{ forgejo.run_number }}"
+          PACKAGES_JWT=$(curl --fail -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=$AUD" | jq -r .value)
+          echo "::add-mask::$PACKAGES_JWT"
+          # The PowerPC files of this version, from the registry the job before put them in.
+          for variant in $VARIANTS; do
+            for kind in pkg stage; do
+              f="$PKG-$variant-$VERSION.$kind.tar.gz"
+              curl --fail -sS -H "Authorization: bearer $PACKAGES_JWT" -o "dist/$f" \
+                "${{ forgejo.server_url }}/api/packages/${GITHUB_REPOSITORY%%/*}/generic/$PACKAGE/$version/$f"
+            done
+          done
           set -- dist/*.pkg.tar.gz dist/*.stage.tar.gz
           archive=$1; shift
           sh src/ci/publisher-client.sh "$PACKAGE" "$version" "$version" "$archive" "$@"

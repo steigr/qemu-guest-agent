@@ -86,6 +86,8 @@ int main(int argc, char **argv)
     find_self(argv[0]);
     if (argc >= 4 && strcmp(argv[1], "--applet") == 0 && strcmp(argv[2], "stat") == 0)
         return qga_applet_stat(argc - 3, argv + 3);
+    if (argc >= 3 && strcmp(argv[1], "--applet") == 0 && strcmp(argv[2], "netstat") == 0)
+        return qga_applet_netstat(argc - 3, argv + 3);
 
     for (k = 1; k < argc; k++) {
         if ((strcmp(argv[k], "--tty") == 0 || strcmp(argv[k], "--path") == 0) && k + 1 < argc) {
@@ -152,6 +154,7 @@ int main(int argc, char **argv)
     qga_freeze_register();
     qga_ssh_register();
     qga_user_register();
+    qga_netstat_register();
     qga_exec_register();
     qga_system_register();
     /* Service wrappers hand us a minimal environment (plan section 6). */

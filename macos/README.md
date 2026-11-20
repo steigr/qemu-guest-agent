@@ -14,7 +14,8 @@ Implemented (all commands of plan 5.1-5.3 that are feasible), 115 self-test chec
 - exec: `guest-exec`, `guest-exec-status`
 - system: `guest-get-host-name`/`-hostname`, `guest-get-time`, `guest-set-time`, `guest-get-timezone`,
   `guest-get-load`, `guest-get-osinfo`, `guest-get-vcpus`, `guest-get-fsinfo`, `guest-get-users`,
-  `guest-network-get-interfaces` (IPv4 + MAC via ioctl, IPv6 by parsing `ifconfig -a`), `guest-shutdown`
+  `guest-network-get-interfaces` (IPv4 + MAC via ioctl, IPv6 by parsing `ifconfig -a`),
+  `guest-network-get-listeners` (PowerPC, see below), `guest-shutdown`
 - hardware: `guest-get-memory-blocks`, `guest-get-memory-block-info` (nominal 128 MiB blocks, never
   offline-able), `guest-get-cpustats` (Mach, `type: linux` with user/nice/system/idle),
   `guest-get-disks` (`/dev/diskN[sM]`), `guest-get-diskstats` (IOKit `IOBlockStorageDriver`; sectors
@@ -46,6 +47,19 @@ throwaway NetInfo user for ssh keys (dedupe, remove, reset, owner/mode), passwor
 - **Built-in `/usr/bin/stat`:** 10.0/10.1 ship none. When `guest-exec` is asked for `/usr/bin/stat` and it is
   not executable, the agent re-executes itself as `--applet stat`, which understands the BSD
   (`-f "%z %p %m"`) and GNU (`-c "%s %f %Y"`) spellings the host uses.
+- **`netstat` is too expensive to poll on PowerPC.** One `netstat -an -f inet` makes about 11,200 `lseek` and
+  11,100 `read` calls and takes 2 to 3 s of system time under TCG (10.3.9, 2026-11-05). So a PowerPC build
+  answers two ways without it, from the `net.inet.tcp.pcblist` and `net.inet.udp.pcblist` sysctls (`commands/netstat.c`):
+  - `guest-network-get-listeners` returns `{"listeners":[{"protocol","family","address","port"}],"interfaces":[...]}`,
+    `interfaces` being `guest-network-get-interfaces`' answer. `family` is `ipv4`, `ipv6` or `dual`; `address` is
+    `*`, or the address the socket is bound to, so that a host can tell one NIC from another. The orchestrator
+    uses it when the agent has it.
+  - `guest-exec` of exactly `netstat -an -f inet` or `-f inet6`, alone or inside a `/bin/sh -c` script, runs
+    `--applet netstat` instead: the same table, without the `icm6` row, for an orchestrator or script that
+    still asks for netstat. Any other netstat is left alone.
+
+  A kernel whose records are not this build's layout gets the real netstat, or from the command an error.
+  The Intel binary is one build for 10.4 to 10.15 and has neither.
 - **`guest-set-user-password`:** `dscl . -passwd` where `/usr/bin/dscl` exists (plain text only);
   otherwise NetInfo: `niutil -createprop . /users/NAME passwd HASH` with a `crypt()` hash (DES: only the
   first 8 characters count). The password is passed to the tool as an argument, so it is briefly visible in `ps`.
@@ -124,7 +138,8 @@ on port 7700 when the guest has a vsock device (`VirtioVsock.kext` loaded; the d
 case the kext loads later; `--vsock PORT` asks for a port and logs every failure; `--vsock off`;
 `--tty off` serves vsock alone. Both channels are served from one loop and share the commands'
 state (open files, exec'd children, the freeze); vsock handles are not file descriptors, so while
-vsock is up `select()` waits 20 ms and the handles are polled after it. One connection at a time: a
+vsock is up `select()` waits and the handles are polled after it: 20 ms after a request or a connection, doubling
+with each empty wait up to 500 ms, which is how long the first request of a burst may wait. The virtio console is not affected. One connection at a time: a
 new one replaces the old, which is what a host that reconnects needs. The host connects to the
 guest's CID, port 7700, with `AF_VSOCK`.
 

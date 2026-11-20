@@ -387,6 +387,48 @@ static void test_exec(void)
     }
 }
 
+static void rewrites(const char *in, const char *expect)
+{
+    char *r = qga_netstat_rewrite(in, "/a/agent");
+
+    CHECK(expect ? r && strcmp(r, expect) == 0 : r == NULL);
+    free(r);
+}
+
+static void test_netstat_rewrite(void)
+{
+    /* The two scripts the host sends: guestports' and screensharing's. */
+    rewrites("/usr/sbin/netstat -an -f inet; /usr/sbin/netstat -an -f inet6 2>/dev/null; true; echo m; /sbin/ifconfig -a",
+             "/a/agent --applet netstat -an -f inet; /a/agent --applet netstat -an -f inet6 2>/dev/null; true; echo m; /sbin/ifconfig -a");
+    rewrites("/usr/sbin/netstat -an -f inet && { /usr/sbin/netstat -an -f inet6 2>/dev/null; true; }",
+             "/a/agent --applet netstat -an -f inet && { /a/agent --applet netstat -an -f inet6 2>/dev/null; true; }");
+    rewrites("/usr/sbin/netstat -an -f inet", "/a/agent --applet netstat -an -f inet");
+    rewrites("x | /usr/sbin/netstat -an -f inet | y", "x | /a/agent --applet netstat -an -f inet | y");
+    /* Anything else is the real netstat's: another table, more arguments, or only a mention. */
+    rewrites("/usr/sbin/netstat -rn -f inet", NULL);
+    rewrites("/usr/sbin/netstat -an -f inet -v", NULL);
+    rewrites("/usr/sbin/netstat -an -f inet7", NULL);
+    rewrites("/usr/sbin/netstat -an", NULL);
+    rewrites("echo \"/usr/sbin/netstat -an -f inet\"", NULL);
+    rewrites("/opt/usr/sbin/netstat -an -f inet", NULL);
+    rewrites("/bin/ls", NULL);
+    /* Kept where another command of the script is rewritten. */
+    rewrites("/usr/sbin/netstat -rn -f inet; /usr/sbin/netstat -an -f inet",
+             "/usr/sbin/netstat -rn -f inet; /a/agent --applet netstat -an -f inet");
+    /* A path the shell would read as something else is no path to run. */
+    CHECK(qga_netstat_rewrite("/usr/sbin/netstat -an -f inet", "/a b/agent") == NULL);
+    CHECK(qga_netstat_rewrite("/usr/sbin/netstat -an -f inet", "") == NULL);
+
+    if (qga_netstat_native()) {
+        json *keep = NULL;
+        json *r = call("{\"execute\":\"guest-network-get-listeners\"}", &keep);
+
+        CHECK(r && json_obj_get(r, "listeners") && json_obj_get(r, "listeners")->type == J_ARR);
+        CHECK(r && json_obj_get(r, "interfaces") && json_obj_get(r, "interfaces")->type == J_ARR);
+        json_free(keep);
+    }
+}
+
 static void test_system(void)
 {
     json *keep, *r;
@@ -522,8 +564,10 @@ int qga_selftest(void)
     qga_freeze_register();
     qga_ssh_register();
     qga_user_register();
+    qga_netstat_register();
     test_file();
     test_exec();
+    test_netstat_rewrite();
     test_system();
     test_hw_freeze();
     test_logstream();

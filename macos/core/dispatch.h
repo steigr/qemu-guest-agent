@@ -8,7 +8,7 @@
 #include <sys/time.h>
 #include <unistd.h>
 
-#define QGA_VERSION "0.3.0"
+#define QGA_VERSION "0.3.1"
 
 /* Handler contract: return 0 and optionally set *ret (NULL means `{}`), or
  * return non-zero after writing a message to err (reported as GenericError).
@@ -61,9 +61,17 @@ int  qga_hw_have_iokit(void);       /* 0 in the x86_64 slice on Tiger: no diskst
 void qga_freeze_register(void);     /* commands/freeze.c */
 void qga_ssh_register(void);        /* commands/ssh.c */
 void qga_user_register(void);       /* commands/user.c */
+void qga_netstat_register(void);    /* commands/netstat.c */
+int  qga_network_interfaces(json **ret, char *err, size_t errlen);  /* commands/system.c */
 
-/* Applets: the agent re-executes itself to stand in for tools missing on old releases. */
+/* Applets: the agent re-executes itself to stand in for tools missing on old releases, or too
+ * expensive on them. */
 extern char qga_self_path[1024];    /* absolute path of this binary, set by main() */
 int qga_applet_stat(int argc, char **argv);
+int qga_applet_netstat(int argc, char **argv);      /* commands/netstat.c */
+int qga_netstat_native(void);                       /* this build can answer without netstat */
+int qga_netstat_args_match(int argc, char **argv);  /* -an -f inet or -an -f inet6 */
+/* script with each such netstat command replaced by self's applet, malloc'd; NULL if it has none. */
+char *qga_netstat_rewrite(const char *script, const char *self);
 
 #endif
