@@ -17,9 +17,16 @@ OPT       ?= -Os
 cc_opt = $(shell echo 'int x;' > .probe.c; if [ -z "`$(CC) $(1) -c -o .probe.o .probe.c 2>&1`" ]; then echo $(1); fi; rm -f .probe.c .probe.o)
 STD       := $(call cc_opt,-std=gnu89)
 WARN      := -Wall -W $(call cc_opt,-Wdeclaration-after-statement)
-CFLAGS    += $(STD) $(WARN) $(OPT) $(ARCH_FLAGS)
+# An older release's build on a newer system (ci/build-guest.sh): TOOLKIT is that release's Developer
+# Tools unpacked beside the system's own, whose headers come first; SYSROOT is its libSystem, IOKit
+# and CoreFoundation (ci/sysroot.sh), which the agent links against, so that a symbol the release
+# lacks fails the link and not the launch; LDEXTRA is anything else the link needs.
+TOOLKIT   ?=
+SYSROOT   ?=
+LDEXTRA   ?=
+CFLAGS    += $(STD) $(WARN) $(OPT) $(ARCH_FLAGS) $(if $(TOOLKIT),-I$(TOOLKIT)/usr/include -F$(TOOLKIT)/System/Library/Frameworks)
 FRAMEWORKS ?= -framework IOKit -framework CoreFoundation
-LDFLAGS   += $(ARCH_FLAGS) $(FRAMEWORKS)
+LDFLAGS   += $(ARCH_FLAGS) $(if $(SYSROOT),-L$(SYSROOT)/usr/lib -F$(SYSROOT)/System/Library/Frameworks) $(LDEXTRA) $(FRAMEWORKS)
 
 SRCS = main.c selftest.c \
        core/util.c core/json.c core/base64.c core/dispatch.c \

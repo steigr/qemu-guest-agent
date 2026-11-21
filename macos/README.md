@@ -114,8 +114,16 @@ make ARCH_FLAGS="-arch ppc"        # cross-arch flag if needed; on a PPC guest t
 printf '{"execute":"guest-ping"}\n' | ./qemu-guest-agent --tty -
 ```
 
-The Makefile flags (`-std=gnu89 -Wextra`) are untested on GCC 2.95 (10.0/10.1); loosen them there
-and record the evidence here when that milestone is reached.
+The flags are probed, so GCC 2.95 (10.0/10.1) and 3.1 (10.2) get only the ones they take. An older
+release's build on a newer system names that release's headers and libraries:
+
+```sh
+make CC=<10.0's cc> TOOLKIT=/opt/toolkit-10.0 SYSROOT=/opt/sysroot-10.0 LDEXTRA=-Wl,-flat_namespace
+```
+
+`TOOLKIT` is its Developer Tools unpacked beside the system's own (headers first on the path),
+`SYSROOT` its libSystem, IOKit and CoreFoundation ([ci/sysroot.sh](ci/sysroot.sh)), which the agent
+links against, so that a symbol the release lacks fails the link and not the launch.
 
 ## Channel behaviour (plan section 4.1)
 
@@ -179,9 +187,12 @@ with the guest add-ons never puts it there. The StartupItem script avoids `RunSe
 ## Releases
 
 [`macos-qemu_guest_agent.yml`](../.forgejo/workflows/macos-qemu_guest_agent.yml) builds the agent
-for PowerPC (`gcc3-10.3`, [ci/component.sh](ci/component.sh)) in the Panther guest of the
-`macosx-ppc` runner on a push to `main` that touches `macos/`, packages it as `QemuGuestAgent.pkg`,
-checks the package in the guest, and publishes package and stage to the `virtualization`
+for PowerPC in the Panther guest of the `macosx-ppc` runner, once per release
+([ci/component.sh](ci/component.sh), [ci/build-guest.sh](ci/build-guest.sh)): `gcc2-10.0` and
+`gcc2-10.1` with those releases' GCC 2.95.2 and headers, `gcc3-10.2` with Panther's GCC 3.3, each
+linked against its release's own libraries from `/opt/sysroot-<release>` (made from the install CD
+by [ci/sysroot.sh](ci/sysroot.sh)), and `gcc3-10.3` for 10.3 to 10.5. It runs on a push to `main`
+that touches `macos/`, packages each as `QemuGuestAgent.pkg`, checks the packages in the guest, and publishes package and stage to the `virtualization`
 organisation as the generic package
 [`macos_qemu_guest_agent`](https://git.stei.gr/virtualization/-/packages/generic/macos_qemu_guest_agent/latest)
 (`QGA_VERSION.<run number>` and `latest`), and to `updates.verfüg.bar/macos_qemu_guest_agent/`.
