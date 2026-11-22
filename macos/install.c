@@ -145,6 +145,8 @@ static const char item_params[] =
     "  };\n"
     "}\n";
 
+/* OnDemand false for 10.4's launchd, which predates KeepAlive and ignores it: without it an agent
+ * that exits is never started again. Leopard and later take KeepAlive and ignore OnDemand. */
 static const char daemon_plist[] =
     "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
     "<!DOCTYPE plist PUBLIC \"-//Apple Computer//DTD PLIST 1.0//EN\" "
@@ -158,6 +160,7 @@ static const char daemon_plist[] =
     "    <string>--tty</string><string>auto</string>\n"
     "    <string>--log</string><string>" QGA_DEFAULT_LOG "</string>\n"
     "  </array>\n"
+    "  <key>OnDemand</key><false/>\n"
     "  <key>RunAtLoad</key><true/>\n"
     "  <key>KeepAlive</key><true/>\n"
     "</dict>\n"

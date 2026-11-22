@@ -10,5 +10,14 @@ rm -rf /Library/StartupItems/MacGuestAgent /usr/local/libexec/mac-guest-agent.pl
 # and running now, as Dropbear's postflight starts Dropbear: a Perl agent removed above still holds
 # the channel until it is stopped
 pkill -f mac-guest-agent.pl 2>/dev/null || kill `ps ax | awk '/[m]ac-guest-agent.pl/ {print $1}'` 2>/dev/null
-/Library/StartupItems/QemuGuestAgent/QemuGuestAgent start
+# Started now, by whatever --upgrade wrote: a StartupItem before 10.4, a LaunchDaemon from 10.4 on.
+# A package installed in the installer context has this run by the first boot's ProvisionPostflight,
+# and on 10.4 that boot started no agent at all: --upgrade wrote the LaunchDaemon, which launchd
+# loads only at the next boot, and the StartupItem it tried to start was not there (PowerPC 10.4.11,
+# 2026-11-22).
+if [ -f /Library/LaunchDaemons/org.qemu.guest-agent.plist ]; then
+  launchctl load /Library/LaunchDaemons/org.qemu.guest-agent.plist
+else
+  /Library/StartupItems/QemuGuestAgent/QemuGuestAgent start
+fi
 exit 0

@@ -8,7 +8,7 @@
 #include <sys/time.h>
 #include <unistd.h>
 
-#define QGA_VERSION "0.3.2"
+#define QGA_VERSION "0.3.3"
 
 /* Handler contract: return 0 and optionally set *ret (NULL means `{}`), or
  * return non-zero after writing a message to err (reported as GenericError).
