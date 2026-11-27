@@ -98,10 +98,8 @@ jobs:
       # run, so that a pull request's build can be tested before it is merged.
       - name: Keep a branch's build with the run
         if: ${{ forgejo.ref != 'refs/heads/main' }}
-        uses: https://data.forgejo.org/forgejo/upload-artifact@v3
-        with:
-          name: ppc
-          path: dist/*
+        run: |
+          for f in dist/*; do echo "BRANCHFILE $f"; base64 < "$f" | fold -w 120 | sed 's/^/B64 /'; echo "BRANCHEND"; done
 
       - name: Publish to the package registry
         if: ${{ forgejo.ref == 'refs/heads/main' }}
@@ -168,10 +166,8 @@ jobs:
 
       - name: Keep a branch's build with the run
         if: ${{ forgejo.ref != 'refs/heads/main' }}
-        uses: https://data.forgejo.org/forgejo/upload-artifact@v3
-        with:
-          name: intel
-          path: dist/*
+        run: |
+          for f in dist/*; do echo "BRANCHFILE $f"; base64 < "$f" | fold -w 120 | sed 's/^/B64 /'; echo "BRANCHEND"; done
 
       - name: Publish to the package registry, beside the PowerPC files
         if: ${{ forgejo.ref == 'refs/heads/main' }}
