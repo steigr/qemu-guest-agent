@@ -45,7 +45,9 @@ jobs:
           rm -rf src
           git -c http.extraHeader="Authorization: bearer ${{ forgejo.token }}" \
             clone --depth 1 "${{ forgejo.server_url }}/${{ forgejo.repository }}.git" src
-          git -C src fetch --quiet --depth 1 origin "${{ forgejo.sha }}" && git -C src checkout --quiet FETCH_HEAD
+          git -C src -c http.extraHeader="Authorization: bearer ${{ forgejo.token }}" \
+            fetch --quiet --depth 1 origin "${{ forgejo.sha }}"
+          git -C src checkout --quiet FETCH_HEAD
           . src/macos/ci/component.sh
           sed -n 's/.*QGA_VERSION "\(.*\)".*/\1/p' src/macos/core/dispatch.h > version.txt
           [ -s version.txt ]
@@ -126,7 +128,9 @@ jobs:
           rm -rf src
           git -c http.extraHeader="Authorization: bearer ${{ forgejo.token }}" \
             clone --depth 1 "${{ forgejo.server_url }}/${{ forgejo.repository }}.git" src
-          git -C src fetch --quiet --depth 1 origin "${{ forgejo.sha }}" && git -C src checkout --quiet FETCH_HEAD
+          git -C src -c http.extraHeader="Authorization: bearer ${{ forgejo.token }}" \
+            fetch --quiet --depth 1 origin "${{ forgejo.sha }}"
+          git -C src checkout --quiet FETCH_HEAD
           sed -n 's/.*QGA_VERSION "\(.*\)".*/\1/p' src/macos/core/dispatch.h > version.txt
           [ -s version.txt ]
 
