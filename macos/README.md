@@ -146,8 +146,12 @@ on port 7700 when the guest has a vsock device (`VirtioVsock.kext` loaded; the d
 case the kext loads later; `--vsock PORT` asks for a port and logs every failure; `--vsock off`;
 `--tty off` serves vsock alone. Both channels are served from one loop and share the commands'
 state (open files, exec'd children, the freeze); vsock handles are not file descriptors, so while
-vsock is up `select()` waits and the handles are polled after it: 20 ms after a request or a connection, doubling
-with each empty wait up to 500 ms, which is how long the first request of a burst may wait. The virtio console is not affected. One connection at a time: a
+vsock is up `select()` waits and the handles are polled after it (since 0.3.4): the handle is read until it is empty,
+then the wait is 1 ms after any bytes, a response or a connection, doubling with each empty wait up to 500 ms (20 ms
+beside a pci-serial port), which is how long the first request of a burst may wait. A transfer is paced by that wait,
+and 10.9 and later stretch a daemon's timers several times over, in proportion to their length: with 0.3.3's 20 ms, 2 MiB
+in the host's 32 KiB chunks moved at 177 KB/s in and 420 KB/s out on 10.9.5, and at 631 and 957 KB/s with
+`kern.timer.coalescing_enabled=0` (live, 2026-11-27). The virtio console is not affected. One connection at a time: a
 new one replaces the old, which is what a host that reconnects needs. The host connects to the
 guest's CID, port 7700, with `AF_VSOCK`.
 
