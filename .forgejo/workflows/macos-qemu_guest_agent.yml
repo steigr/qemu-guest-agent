@@ -14,7 +14,8 @@
 #
 # Every token is the job's ID token, so no token is configured: vars.AUD is the audience of the Authorized
 # Integration that uploads packages (write:package), and the publisher authorizes through its policy for this
-# repository and workflow. libvsock is vendored in macos/transport/libvsock.
+# repository and workflow. Dispatched from another branch it publishes the numbered version to the registry alone:
+# not "latest", and nothing to verfüg.bar. libvsock is vendored in macos/transport/libvsock.
 name: macos/qemu-guest-agent
 on:
   push:
@@ -166,6 +167,7 @@ jobs:
           sh src/ci/publish-package.sh "$PACKAGE" "$version" dist/*
 
       - name: Publish to verfüg.bar
+        if: ${{ forgejo.ref == 'refs/heads/main' }}
         env:
           APPCAST: "false"
           AUD: ${{ vars.AUD }}

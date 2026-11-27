@@ -25,7 +25,10 @@ fi
 resp=$(mktemp)
 trap 'rm -f "$resp"' 0
 
-for v in "$ver" latest; do
+# A build dispatched from a branch is its numbered version only: "latest" stays main's.
+versions=$ver
+[ "${GITHUB_REF:-}" != refs/heads/main ] || versions="$ver latest"
+for v in $versions; do
 	# A version cannot be uploaded twice: remove the old one (404 when there is none).
 	[ "${ADD:-}" = 1 ] || curl -s -m 60 -o /dev/null -X DELETE -H "$auth" "$api/$v" || true
 	for file in "$@"; do
