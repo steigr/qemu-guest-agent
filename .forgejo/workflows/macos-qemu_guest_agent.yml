@@ -14,8 +14,8 @@
 #
 # Every token is the job's ID token, so no token is configured: vars.AUD is the audience of the Authorized
 # Integration that uploads packages (write:package), and the publisher authorizes through its policy for this
-# repository and workflow. Dispatched from another branch it publishes the numbered version to the registry alone:
-# not "latest", and nothing to verfüg.bar. libvsock is vendored in macos/transport/libvsock.
+# repository and workflow. Dispatched from another branch it publishes nothing and keeps the files as run artifacts.
+# libvsock is vendored in macos/transport/libvsock.
 name: macos/qemu-guest-agent
 on:
   push:
@@ -94,7 +94,17 @@ jobs:
           ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o LogLevel=ERROR \
             "$GUEST_SSH" "sh -c 'sh $GUEST_SHARE/$job/check-pkg.sh $GUEST_SHARE/$job 2>&1; rc=\$?; rm -rf $GUEST_SHARE/$job; exit \$rc'"
 
+      # The registry takes uploads from main alone. A run dispatched from another branch keeps its files with the
+      # run, so that a pull request's build can be tested before it is merged.
+      - name: Keep a branch's build with the run
+        if: ${{ forgejo.ref != 'refs/heads/main' }}
+        uses: https://data.forgejo.org/forgejo/upload-artifact@v3
+        with:
+          name: ppc
+          path: dist/*
+
       - name: Publish to the package registry
+        if: ${{ forgejo.ref == 'refs/heads/main' }}
         env:
           AUD: ${{ vars.AUD }}
         run: |
@@ -156,7 +166,15 @@ jobs:
           tar -C stage-intel -czf "dist/$PKG-intel-$VERSION.stage.tar.gz" .
           ls -l dist
 
+      - name: Keep a branch's build with the run
+        if: ${{ forgejo.ref != 'refs/heads/main' }}
+        uses: https://data.forgejo.org/forgejo/upload-artifact@v3
+        with:
+          name: intel
+          path: dist/*
+
       - name: Publish to the package registry, beside the PowerPC files
+        if: ${{ forgejo.ref == 'refs/heads/main' }}
         env:
           AUD: ${{ vars.AUD }}
           ADD: "1"
