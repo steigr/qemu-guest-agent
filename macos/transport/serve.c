@@ -5,7 +5,7 @@
  *
  * Serial nodes are file descriptors and wait in select(). vsock handles are not (libvsock is an
  * IOKit user client), so while vsock is in use select() waits only a tick and the handles are polled
- * after it: a short one while requests are arriving by vsock, a longer one otherwise. */
+ * after it: a very short one while data is moving over vsock, backing off while none is. */
 #include "serve.h"
 #include "tty.h"
 #include "vsock.h"
@@ -27,14 +27,21 @@
 #define DELIM          0xFF
 #define RETRY_SECONDS  2                /* serial node lost or not there yet */
 #define VSOCK_RETRY    10               /* no vsock device (yet: the kext may load after us) */
-/* select()'s wait while vsock handles are polled: VSOCK_TICK_MS after a request or a connection,
+/* select()'s wait while vsock handles are polled: VSOCK_TICK_MS after bytes or a connection,
  * doubling with each wait that ends with nothing up to VSOCK_IDLE_TICK_MS. A steady 20 ms, 50 polls a
  * second of up to four IOKit calls each, held an idle Panther's vCPU at 6.5% against 1.9% with the
  * agent stopped (live, 10.3.9, 2026-11-05). What the longer wait costs is the wait for the first
  * request of a burst and for a connection; the virtio console is unaffected, select() being woken
- * by its own driver. */
-#define VSOCK_TICK_MS  20
+ * by its own driver.
+ *
+ * The first wait is 1 ms because a transfer is paced by it: the host sends no more than the kext's
+ * 32 KiB window until the agent has read, so every window costs at least one wait. From 10.9 the
+ * kernel coalesces timers and stretches a daemon's waits several times over: a 20 ms select() took
+ * 30 to 130 ms, and the same transfer was three times faster with kern.timer.coalescing_enabled=0
+ * (live, 10.9.5, 2026-11-27). The stretch is in proportion to the wait, so a short one stays short. */
+#define VSOCK_TICK_MS  1
 #define VSOCK_IDLE_TICK_MS 500
+#define VSOCK_DRAIN_MAX (1024 * 1024)  /* read in one turn, before the other channels get theirs */
 #define WRITE_STALL_MS 3000             /* a peer that drains nothing for this long loses data */
 /* A UART -- the Intel releases' pci-serial, /dev/cu.*serial* -- is read every UART_TICK_MS whether
  * or not select() says so, and reopened after UART_IDLE seconds without a request. Both are
@@ -115,8 +122,10 @@ static void conn_write(conn *c, const char *buf, size_t len)
                 return;
             }
             if (c->vsock) {
-                msleep(10);
-                waited += 10;
+                int ms = waited < 8 ? 1 : 10;   /* short first: room comes back in microseconds */
+
+                msleep(ms);
+                waited += ms;
             } else {
                 fd_set w;
                 struct timeval tv;
@@ -144,8 +153,6 @@ static void process_line(conn *c, const char *line, size_t len, sbuf *out)
     if (s == len)
         return;                         /* blank line */
     c->last_request = time(NULL);
-    if (c->vsock)
-        vsock_tick_ms = VSOCK_TICK_MS;
     st.requests++;
     if (qga_verbose)
         qga_log("%s <- %.*s", c->name, (int)(len - s > 300 ? 300 : len - s), line + s);
@@ -155,6 +162,8 @@ static void process_line(conn *c, const char *line, size_t len, sbuf *out)
         qga_log("%s -> %.*s", c->name, (int)(out->len > 300 ? 300 : out->len), out->p);
     if (out->len > 0)
         conn_write(c, out->p, out->len);
+    if (c->vsock)
+        vsock_tick_ms = VSOCK_TICK_MS;  /* the next request is likely close behind */
 }
 
 static void feed(conn *c, const unsigned char *buf, size_t n, sbuf *out)
@@ -383,10 +392,14 @@ int qga_serve(const qga_serve_cfg *cfg)
         qga_poll_fill(&r, &w, &maxfd);
         tv.tv_sec = 0;
         tv.tv_usec = vsock_tick_ms * 1000;      /* under a second: select() refuses a tv_usec past it */
-        if (listener < 0 && llistener < 0 && !(t.open && t.uart)) {
-            tv.tv_sec = 1;
-            tv.tv_usec = 0;
-        } else if (t.open && t.uart) {
+        if (listener < 0 && llistener < 0) {
+            if (t.open && t.uart)
+                tv.tv_usec = UART_TICK_MS * 1000;
+            else {
+                tv.tv_sec = 1;
+                tv.tv_usec = 0;
+            }
+        } else if (t.open && t.uart && vsock_tick_ms > UART_TICK_MS) {
             tv.tv_usec = UART_TICK_MS * 1000;
         }
         rc = select(maxfd + 1, &r, &w, NULL, &tv);
@@ -440,14 +453,22 @@ int qga_serve(const qga_serve_cfg *cfg)
             if (qv_poll(v.vh, &readable, &flags) < 0) {
                 conn_close(&v);
             } else {
+                size_t drained = 0;
+
                 while (readable > 0) {
                     int n = qv_read(v.vh, buf, sizeof buf);
 
                     if (n <= 0)
                         break;
                     st.in += (unsigned long)n;
+                    drained += (size_t)n;
+                    vsock_tick_ms = VSOCK_TICK_MS;
                     feed(&v, buf, (size_t)n, &out);
                     readable = readable > (unsigned int)n ? readable - (unsigned int)n : 0;
+                    /* what arrived meanwhile, now: a wait first would cost a whole tick */
+                    if (readable == 0 && drained < VSOCK_DRAIN_MAX &&
+                        qv_poll(v.vh, &readable, &flags) < 0)
+                        break;
                 }
                 if ((flags & QV_RESET) || ((flags & QV_EOF) && readable == 0)) {
                     qga_log("agent: vsock connection closed");

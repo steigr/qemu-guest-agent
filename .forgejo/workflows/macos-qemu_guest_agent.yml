@@ -14,7 +14,8 @@
 #
 # Every token is the job's ID token, so no token is configured: vars.AUD is the audience of the Authorized
 # Integration that uploads packages (write:package), and the publisher authorizes through its policy for this
-# repository and workflow. libvsock is vendored in macos/transport/libvsock.
+# repository and workflow. Dispatched from another branch it publishes nothing.
+# libvsock is vendored in macos/transport/libvsock.
 name: macos/qemu-guest-agent
 on:
   push:
@@ -44,7 +45,9 @@ jobs:
           rm -rf src
           git -c http.extraHeader="Authorization: bearer ${{ forgejo.token }}" \
             clone --depth 1 "${{ forgejo.server_url }}/${{ forgejo.repository }}.git" src
-          git -C src fetch --quiet --depth 1 origin "${{ forgejo.sha }}" && git -C src checkout --quiet FETCH_HEAD
+          git -C src -c http.extraHeader="Authorization: bearer ${{ forgejo.token }}" \
+            fetch --quiet --depth 1 origin "${{ forgejo.sha }}"
+          git -C src checkout --quiet FETCH_HEAD
           . src/macos/ci/component.sh
           sed -n 's/.*QGA_VERSION "\(.*\)".*/\1/p' src/macos/core/dispatch.h > version.txt
           [ -s version.txt ]
@@ -91,7 +94,10 @@ jobs:
           ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o LogLevel=ERROR \
             "$GUEST_SSH" "sh -c 'sh $GUEST_SHARE/$job/check-pkg.sh $GUEST_SHARE/$job 2>&1; rc=\$?; rm -rf $GUEST_SHARE/$job; exit \$rc'"
 
+      # The registry takes uploads from main alone (HTTP 401 for a branch's run, runs 15 and 16): a run dispatched
+      # from another branch builds, packages and checks, and publishes nothing.
       - name: Publish to the package registry
+        if: ${{ forgejo.ref == 'refs/heads/main' }}
         env:
           AUD: ${{ vars.AUD }}
         run: |
@@ -125,7 +131,9 @@ jobs:
           rm -rf src
           git -c http.extraHeader="Authorization: bearer ${{ forgejo.token }}" \
             clone --depth 1 "${{ forgejo.server_url }}/${{ forgejo.repository }}.git" src
-          git -C src fetch --quiet --depth 1 origin "${{ forgejo.sha }}" && git -C src checkout --quiet FETCH_HEAD
+          git -C src -c http.extraHeader="Authorization: bearer ${{ forgejo.token }}" \
+            fetch --quiet --depth 1 origin "${{ forgejo.sha }}"
+          git -C src checkout --quiet FETCH_HEAD
           sed -n 's/.*QGA_VERSION "\(.*\)".*/\1/p' src/macos/core/dispatch.h > version.txt
           [ -s version.txt ]
 
@@ -152,6 +160,7 @@ jobs:
           ls -l dist
 
       - name: Publish to the package registry, beside the PowerPC files
+        if: ${{ forgejo.ref == 'refs/heads/main' }}
         env:
           AUD: ${{ vars.AUD }}
           ADD: "1"
@@ -166,6 +175,7 @@ jobs:
           sh src/ci/publish-package.sh "$PACKAGE" "$version" dist/*
 
       - name: Publish to verfüg.bar
+        if: ${{ forgejo.ref == 'refs/heads/main' }}
         env:
           APPCAST: "false"
           AUD: ${{ vars.AUD }}
